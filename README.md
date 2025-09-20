@@ -26,7 +26,7 @@ chmod +x ./environments/set_up.sh
 ./environments/set_up.sh
 ```
 
-Windows is not currently supported. Please download the dataset manually and organize/rename the files to match the folder structure shown above.
+Windows is not currently supported. Please download the dataset manually and organize/rename the folder/files to match the folder structure shown above.
 
 ### For docker on Linux (recommended)
 
@@ -38,7 +38,7 @@ docker buildx build -t comical .
 
 - Rebuild the image everytime there is an update for the environments (Ex: Add a conda package in environments/\*.yml)
 
-- Run the image and mount the current repo to /workspace/ in the docker container, changes in /workspace will get reflected outside
+- Run the image and mount the current repo to /workspace/ in the docker container, changes in /workspace will get reflected outside (on host machine)
 
 ```bash
 docker run -it -p 8080:8080 -v "$(pwd):/workspace" comical
@@ -55,4 +55,4 @@ conda env create -f ./environments/py11.yml
 conda activate py11
 ```
 
-- If you dont use conda, read the yml files and install each package by hand, since pip install is not supported
+- If you dont use conda, read the yml files and install each package by hand, since pip install requirement.txt is not supported
