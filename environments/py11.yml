@@ -1,0 +1,11 @@
+name: py11
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11.13
+  - numpy
+  - pandas
+  - matplotlib
+  - scikit-learn
+  - jupyterlab
+  - ipykernel
