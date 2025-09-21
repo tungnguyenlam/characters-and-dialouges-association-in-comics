@@ -19,16 +19,14 @@ characters-and-dialouges-association-in-comics
 
 - Make sure you are in **.../characters-and-dialouges-association-in-comics/** (the folder containing this README).
 
-- Set up the dataset (downloads and unzips if not present):
+- If you want to set up the dataset manually (downloads and unzips if not present), for docker users, those 2 command will be automatically run:
 
 ```bash
 chmod +x ./environments/set_up.sh
 ./environments/set_up.sh
 ```
 
-Windows is not currently supported. Please download the dataset manually and organize/rename the folder/files to match the folder structure shown above.
-
-### For docker on Linux (recommended)
+### For docker (recommended)
 
 - Build the image (Use whatever image name you want, here we use comical ^\_^)
 
@@ -41,7 +39,7 @@ docker buildx build -t comical .
 - Run the image and mount the current repo to /workspace/ in the docker container, changes in /workspace will get reflected outside (on host machine)
 
 ```bash
-docker run -it -p 8080:8080 -v "$(pwd):/workspace" comical
+docker run -it --rm -p 8080:8080 -v "$(pwd):/workspace" comical
 ```
 
 - Open `http://localhost:8080` to access jupyterlab hosted on the docker container
