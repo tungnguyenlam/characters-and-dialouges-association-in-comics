@@ -9,3 +9,6 @@ dependencies:
   - scikit-learn
   - jupyterlab
   - ipykernel
+  - pip
+  - pip:
+      - inference-sdk
