@@ -5,11 +5,22 @@ dependencies:
   - python=3.11.13
   - numpy
   - pandas
+  - geopandas
   - matplotlib
   - scikit-learn
   - jupyterlab
   - ipykernel
+  - detectron2
+  - pytorch
+  - torchvision
+  - torchaudio
+  - shapely
+  - opencv
+  - pillow
+  - tqdm
+  - huggingface_hub
   - pip
   - pip:
       - inference-sdk
       - roboflow
+      - python-dotenv
