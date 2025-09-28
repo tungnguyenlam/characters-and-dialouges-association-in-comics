@@ -19,13 +19,6 @@ characters-and-dialouges-association-in-comics
 
 - Make sure you are in **.../characters-and-dialouges-association-in-comics/** (the folder containing this README).
 
-- If you want to set up the dataset manually (downloads and unzips if not present), for docker users, those 2 command will be automatically run:
-
-```bash
-chmod +x ./environments/set_up.sh
-./environments/set_up.sh
-```
-
 ### For docker (recommended)
 
 - Build the image (Use whatever image name you want, here we use comical ^\_^)
@@ -54,3 +47,21 @@ conda activate py11
 ```
 
 - If you dont use conda, read the yml files and install each package by hand, since pip install requirement.txt is not supported
+
+### Download the dataset
+
+- Create an .env file outside of the repository (For docker, this command is automatically run)
+
+```bash
+chmod +x ./environments/set_up.sh
+./environments/set_up.sh
+```
+
+- Open the `../.env` file and put your HF_TOKEN in
+
+- Run the code to download Manga109 dataset (Assuming that you have access to the dataset in Huggingface)
+
+```bash
+chmod +x ./environments/set_up_dataset.sh
+./environments/set_up_dataset.sh
+```
