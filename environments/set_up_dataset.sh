@@ -13,3 +13,4 @@ hf download hal-utokyo/Manga109 --repo-type dataset --include Manga109_released_
 unzip ./data/Manga109_released_2023_12_07.zip -d ./data
 rm ./data/Manga109_released_2023_12_07.zip
 rm -rf ./data/.cache
+rm -rf ./data/__MACOSX
