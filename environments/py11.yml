@@ -23,3 +23,5 @@ dependencies:
       - inference-sdk
       - roboflow
       - python-dotenv
+      - gdown
+      - unzip
