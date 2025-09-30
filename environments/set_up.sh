@@ -24,6 +24,11 @@ if [[ ! "$CURRENT_DIR" == *"characters-and-dialouges-association-in-comics"* ]];
     exit 1
 fi
 
+if ! conda info --envs | grep -q "py11"; then
+    echo "Creating conda environment..."
+    conda env create -f /environments/py11.yml
+fi
+
 CHARACTER_DIALOGUES_DIR=""
 TEMP_DIR="$CURRENT_DIR"
 
