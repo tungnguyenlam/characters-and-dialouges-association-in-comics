@@ -32,7 +32,7 @@ docker buildx build -t comical .
 - Run the image and mount the current repo to /workspace/ in the docker container, changes in /workspace will get reflected outside (on host machine)
 
 ```bash
-docker run -it -p 8080:8080 -v "$(pwd):/workspace" comical
+docker run -it -p 8080:8080 -v "$(pwd):/characters-and-dialouges-association-in-comics" comical
 ```
 
 - Open `http://localhost:8080` to access jupyterlab hosted on the docker container
