@@ -49,13 +49,40 @@ DATASET_DIR = os.path.join(BASE_DIR, 'data', 'YOLOv8_data')
 YAML_PATH = os.path.join(DATASET_DIR, 'dataset.yaml')
 CHECKPOINT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLOv8', '.pipeline_state')
 PRETRAINED_MODEL = 'yolov8s-seg.pt'
+WEIGHTS_DIR = os.path.join(BASE_DIR, 'models', 'bubble-detection', 'YOLOv8', 'weights')  # Custom download directory
 
 # Training parameters
-EPOCHS = 1
-IMAGE_SIZE = 640
-BATCH_SIZE = 4
-PROJECT_NAME = 'YOLOv8_Training_Results'
-RUN_NAME = 'balloon_segmentation_run1'
+# Training parameters
+EPOCHS = 2
+IMAGE_SIZE = 1280
+BATCH_SIZE = 1
+PROJECT_NAME = os.path.join(BASE_DIR, 'models', 'bubble-detection', 'YOLOv8')
+
+# Dynamic run name based on existing runs
+def get_next_run_name(project_dir, base_name='run'):
+    """Generate next available run name (run1, run2, etc.)"""
+    if not os.path.exists(project_dir):
+        return f"{base_name}1"
+    
+    existing_runs = [d for d in os.listdir(project_dir) 
+                     if os.path.isdir(os.path.join(project_dir, d)) and d.startswith(base_name)]
+    
+    if not existing_runs:
+        return f"{base_name}1"
+    
+    # Extract numbers from run names
+    run_numbers = []
+    for run in existing_runs:
+        try:
+            num = int(run.replace(base_name, ''))
+            run_numbers.append(num)
+        except ValueError:
+            continue
+    
+    next_num = max(run_numbers) + 1 if run_numbers else 1
+    return f"{base_name}{next_num}"
+
+RUN_NAME = get_next_run_name(PROJECT_NAME, base_name='balloon_seg_run')
 
 # ===================================================================
 # Checkpoint System
@@ -175,13 +202,22 @@ def train_model(device):
     print(f"  Batch Size: {BATCH_SIZE}")
     print(f"  Output: {PROJECT_NAME}/{RUN_NAME}")
     
+    # Create weights directory if it doesn't exist
+    os.makedirs(WEIGHTS_DIR, exist_ok=True)
+    
+    # Full path to model weights
+    model_path = os.path.join(WEIGHTS_DIR, PRETRAINED_MODEL)
+    
     # Load pretrained model
-    print(f"\nLoading pretrained model: {PRETRAINED_MODEL}")
+    print(f"\nLoading pretrained model: {model_path}")
     try:
-        model = YOLO(PRETRAINED_MODEL)
+        model = YOLO(model_path)
         print("✓ Model loaded successfully")
     except Exception as e:
         raise RuntimeError(f"❌ Failed to load model: {e}")
+    
+    # Start training
+    # ...existing code...
     
     # Start training
     print("\n" + "="*60)

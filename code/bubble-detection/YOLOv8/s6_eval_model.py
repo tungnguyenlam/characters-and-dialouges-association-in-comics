@@ -41,8 +41,38 @@ if not (BASE_DIR.endswith('/content') or BASE_DIR.endswith(END_WITH_LOCAL)):
 
 # Paths
 CHECKPOINT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLOv8', '.pipeline_state')
-PROJECT_NAME = 'YOLOv8_Training_Results'
-RUN_NAME = 'balloon_segmentation_run1'
+PROJECT_NAME = os.path.join(BASE_DIR, 'models', 'bubble-detection', 'YOLOv8')
+
+# Dynamic run name helper
+def get_latest_run_name(project_dir, base_name='balloon_seg_run'):
+    """Find the latest run directory."""
+    if not os.path.exists(project_dir):
+        return None
+    
+    existing_runs = [d for d in os.listdir(project_dir) 
+                     if os.path.isdir(os.path.join(project_dir, d)) and d.startswith(base_name)]
+    
+    if not existing_runs:
+        return None
+    
+    # Extract numbers and find the latest
+    run_numbers = []
+    for run in existing_runs:
+        try:
+            num = int(run.replace(base_name, ''))
+            run_numbers.append((num, run))
+        except ValueError:
+            continue
+    
+    if not run_numbers:
+        return None
+    
+    # Return the run with the highest number
+    latest_run = max(run_numbers, key=lambda x: x[0])[1]
+    return latest_run
+
+# Get the latest run name
+RUN_NAME = get_latest_run_name(PROJECT_NAME) or 'balloon_seg_run1'
 
 # ===================================================================
 # Utility Functions
@@ -73,14 +103,13 @@ def find_best_model():
             return best_model_path
     
     # Fallback: search in expected location
-    expected_path = os.path.join(BASE_DIR, PROJECT_NAME, RUN_NAME, 'weights', 'best.pt')
+    expected_path = os.path.join(PROJECT_NAME, RUN_NAME, 'weights', 'best.pt')
     if os.path.exists(expected_path):
         return expected_path
     
     # Last resort: search for any best.pt in project directory
-    project_dir = os.path.join(BASE_DIR, PROJECT_NAME)
-    if os.path.exists(project_dir):
-        for root, dirs, files in os.walk(project_dir):
+    if os.path.exists(PROJECT_NAME):
+        for root, dirs, files in os.walk(PROJECT_NAME):
             if 'best.pt' in files:
                 return os.path.join(root, 'best.pt')
     
@@ -113,10 +142,11 @@ def check_prerequisites():
         raise FileNotFoundError(
             "❌ Trained model not found!\n"
             "Please run Step 5 first: python s5_train_model.py\n"
-            f"Expected location: {os.path.join(BASE_DIR, PROJECT_NAME, RUN_NAME, 'weights', 'best.pt')}"
+            f"Expected location: {os.path.join(PROJECT_NAME, RUN_NAME, 'weights', 'best.pt')}"
         )
     
     print(f"✓ Best model found: {best_model_path}")
+    print(f"✓ Using run: {RUN_NAME}")
     
     # Check model file size
     model_size_mb = os.path.getsize(best_model_path) / (1024 * 1024)
@@ -294,7 +324,7 @@ def main():
     print("="*60)
     print("\n🎉 Full pipeline completed successfully!")
     print("\nAll training and evaluation results are available in:")
-    print(f"  {os.path.join(BASE_DIR, PROJECT_NAME, RUN_NAME)}")
+    print(f"  {os.path.join(PROJECT_NAME, RUN_NAME)}")
     print("\nKey files:")
     print("  • weights/best.pt       - Best model weights")
     print("  • results.csv           - Training metrics over time")
