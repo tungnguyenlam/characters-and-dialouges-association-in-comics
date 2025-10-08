@@ -81,7 +81,7 @@ PIPELINE_STEPS = [
 ]
 
 # Directory containing step scripts
-SCRIPT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLOv8')
+SCRIPT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLO')
 
 # ===================================================================
 # ANSI Color Codes for Pretty Output

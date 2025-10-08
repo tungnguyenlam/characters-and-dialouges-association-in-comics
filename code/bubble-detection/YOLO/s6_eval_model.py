@@ -40,8 +40,8 @@ if not (BASE_DIR.endswith('/content') or BASE_DIR.endswith(END_WITH_LOCAL)):
     raise ValueError(f"Expected to be in .../{END_WITH_LOCAL} or .../content directory, but got: {BASE_DIR}")
 
 # Paths
-CHECKPOINT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLOv8', '.pipeline_state')
-PROJECT_NAME = os.path.join(BASE_DIR, 'models', 'bubble-detection', 'YOLOv8')
+CHECKPOINT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLO', '.pipeline_state')
+PROJECT_NAME = os.path.join(BASE_DIR, 'models', 'bubble-detection', 'YOLO')
 
 # Dynamic run name helper
 def get_latest_run_name(project_dir, base_name='balloon_seg_run'):

@@ -1,20 +1,30 @@
 #!/usr/bin/env python3
 """
-Step 5: Train YOLOv8 Model
-===========================
+Step 5: Train YOLO Model (Family Agnostic)
+===========================================
 This script handles:
 - Validating that Step 4 was completed successfully
 - Detecting available device (MPS/CUDA/CPU)
-- Loading pretrained YOLOv8 segmentation model
+- Loading any pretrained YOLO family segmentation model
 - Training the model on the prepared dataset
 - Saving training results and model weights
+
+Model Support:
+- YOLOv8: yolov8n-seg.pt, yolov8s-seg.pt, yolov8m-seg.pt, yolov8l-seg.pt, yolov8x-seg.pt
+- YOLOv9: yolov9-seg.pt, yolov9e-seg.pt
+- YOLOv10: yolov10n-seg.pt, yolov10s-seg.pt, yolov10m-seg.pt, yolov10l-seg.pt, yolov10x-seg.pt
+- YOLO11: yolo11n-seg.pt, yolo11s-seg.pt, yolo11m-seg.pt, yolo11l-seg.pt, yolo11x-seg.pt
+
+Usage:
+- Simply change PRETRAINED_MODEL to any supported YOLO segmentation model
+- The code automatically adapts folder structure and naming
 
 Prerequisites:
 - Step 4 must be completed successfully
 - dataset.yaml must exist and be valid
 
 Outputs:
-- YOLOv8_Training_Results/balloon_segmentation_run1/: Training results
+- models/bubble-detection/{model_name}/: Training results
   - weights/best.pt: Best model weights
   - weights/last.pt: Last epoch weights
   - results.csv: Training metrics
@@ -30,6 +40,7 @@ import torch
 from pathlib import Path
 from datetime import datetime
 from ultralytics import YOLO
+import re
 
 # ===================================================================
 # Configuration
@@ -45,18 +56,23 @@ if not (BASE_DIR.endswith('/content') or BASE_DIR.endswith(END_WITH_LOCAL)):
     raise ValueError(f"Expected to be in .../{END_WITH_LOCAL} or .../content directory, but got: {BASE_DIR}")
 
 # Paths
-DATASET_DIR = os.path.join(BASE_DIR, 'data', 'YOLOv8_data')
+DATASET_DIR = os.path.join(BASE_DIR, 'data', 'YOLO_data')
 YAML_PATH = os.path.join(DATASET_DIR, 'dataset.yaml')
-CHECKPOINT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLOv8', '.pipeline_state')
-PRETRAINED_MODEL = 'yolov8s-seg.pt'
-WEIGHTS_DIR = os.path.join(BASE_DIR, 'models', 'bubble-detection', 'YOLOv8', 'weights')  # Custom download directory
+PRETRAINED_MODEL = 'yolov11n-seg.pt'  # Change this to any YOLO model: yolo11n-seg.pt, yolov9-seg.pt, etc.
+
+# Extract model base name for folder structure (removes -seg and .pt)
+MODEL_BASE_NAME = re.sub(r'-seg\.pt$', '', PRETRAINED_MODEL)  # yolov8s-seg.pt -> yolov8s
+MODEL_FAMILY = re.match(r'(yolo(?:v)?[\d]+)', MODEL_BASE_NAME, re.IGNORECASE)  # Extract yolov8, yolo11, etc.
+MODEL_FAMILY_NAME = MODEL_FAMILY.group(1).upper() if MODEL_FAMILY else 'YOLO'  # YOLOv8, YOLO11, etc.
+
+CHECKPOINT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection', MODEL_FAMILY_NAME, '.pipeline_state')
+WEIGHTS_DIR = os.path.join(BASE_DIR, 'models', 'bubble-detection', MODEL_FAMILY_NAME, 'weights')
 
 # Training parameters
-# Training parameters
-EPOCHS = 2
+EPOCHS = 1
 IMAGE_SIZE = 1280
 BATCH_SIZE = 1
-PROJECT_NAME = os.path.join(BASE_DIR, 'models', 'bubble-detection', 'YOLOv8')
+PROJECT_NAME = os.path.join(BASE_DIR, 'models', 'bubble-detection', MODEL_BASE_NAME)
 
 # Dynamic run name based on existing runs
 def get_next_run_name(project_dir, base_name='run'):
@@ -187,9 +203,9 @@ def detect_device():
 # ===================================================================
 
 def train_model(device):
-    """Train the YOLOv8 segmentation model."""
+    """Train the YOLO segmentation model."""
     print("\n" + "="*60)
-    print("STEP 5: Training YOLOv8 Model")
+    print(f"STEP 5: Training {MODEL_FAMILY_NAME} Model ({PRETRAINED_MODEL})")
     print("="*60)
     
     # Display training configuration
@@ -287,7 +303,7 @@ def train_model(device):
 def main():
     """Main execution function."""
     print("\n" + "#"*60)
-    print("# Pipeline Step 5: Train YOLOv8 Model")
+    print(f"# Pipeline Step 5: Train {MODEL_FAMILY_NAME} Model")
     print("#"*60)
     
     print("\nNote: This step always runs fresh (no checkpointing).")

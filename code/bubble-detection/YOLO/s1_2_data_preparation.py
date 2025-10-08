@@ -39,9 +39,9 @@ if not (BASE_DIR.endswith('/content') or BASE_DIR.endswith(END_WITH_LOCAL)):
 # Paths
 JSON_DIR = os.path.join(BASE_DIR, 'data', 'MangaSegmentation/jsons_processed')
 IMAGE_ROOT_DIR = os.path.join(BASE_DIR, 'data', 'Manga109_released_2023_12_07/images')
-DATASET_DIR = os.path.join(BASE_DIR, 'data', 'YOLOv8_data')
-CHECKPOINT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLOv8', '.pipeline_state')
-DATA_RECORDS_FILE = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLOv8', 'data_records.json')
+DATASET_DIR = os.path.join(BASE_DIR, 'data', 'YOLO_data')
+CHECKPOINT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLO', '.pipeline_state')
+DATA_RECORDS_FILE = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLO', 'data_records.json')
 
 # Target category
 TARGET_CATEGORY_ID = 5  # Fixed category ID for balloon

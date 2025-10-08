@@ -45,9 +45,9 @@ if not (BASE_DIR.endswith('/content') or BASE_DIR.endswith(END_WITH_LOCAL)):
     raise ValueError(f"Expected to be in .../{END_WITH_LOCAL} or .../content directory, but got: {BASE_DIR}")
 
 # Paths
-DATASET_DIR = os.path.join(BASE_DIR, 'data', 'YOLOv8_data')
-CHECKPOINT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLOv8', '.pipeline_state')
-DATA_RECORDS_FILE = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLOv8', 'data_records.json')
+DATASET_DIR = os.path.join(BASE_DIR, 'data', 'YOLO_data')
+CHECKPOINT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLO', '.pipeline_state')
+DATA_RECORDS_FILE = os.path.join(BASE_DIR, 'code', 'bubble-detection', 'YOLO', 'data_records.json')
 
 # ===================================================================
 # Checkpoint System
