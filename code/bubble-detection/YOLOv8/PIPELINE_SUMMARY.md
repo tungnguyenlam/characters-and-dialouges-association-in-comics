@@ -7,7 +7,7 @@ Quick start
 - Run
 
 ```bash
-python ./code/utls/rle_to_polygons.py
+python ./code/utils/rle_to_polygons.py
 python ./code/bubble-detection/YOLOv8/pipeline.py
 ```
 
