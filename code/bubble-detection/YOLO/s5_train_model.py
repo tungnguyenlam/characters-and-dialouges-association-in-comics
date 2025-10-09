@@ -37,6 +37,8 @@ import re
 import json
 import torch
 import tempfile
+import urllib.request
+import urllib.error
 from pathlib import Path
 from datetime import datetime
 from ultralytics import YOLO
@@ -243,37 +245,60 @@ def _download_pretrained_weights(destination: Path):
             except Exception as e:
                 print(f"  ⚠ Failed to load model from current directory: {e}")
     
-    # Strategy 3: Let YOLO download from Ultralytics (requires internet)
+    # Strategy 3: Download using wget/curl (requires internet)
     try:
-        print(f"  Attempting automatic download from Ultralytics...")
+        print(f"  Attempting download from GitHub releases...")
         print(f"  This requires internet connectivity...")
         
-        # Change to a temporary directory to avoid file conflicts
-        with tempfile.TemporaryDirectory() as tmpdir:
-            original_dir = os.getcwd()
+        # Ultralytics hosts YOLO models on GitHub releases
+        # URL pattern: https://github.com/ultralytics/assets/releases/download/v{version}/{model}
+        # For YOLO11, version is typically v8.3.0 or later
+        
+        # Try multiple possible URLs
+        possible_urls = [
+            f"https://github.com/ultralytics/assets/releases/download/v8.3.0/{PRETRAINED_MODEL}",
+            f"https://github.com/ultralytics/assets/releases/download/v0.0.0/{PRETRAINED_MODEL}",
+        ]
+        
+        downloaded = False
+        for url in possible_urls:
             try:
-                os.chdir(tmpdir)
-                model = YOLO(PRETRAINED_MODEL)
-                print(f"✓ Weights downloaded successfully")
+                print(f"    Trying: {url}")
+                urllib.request.urlretrieve(url, str(destination))
                 
-                # Copy downloaded weights to destination
-                downloaded_path = Path(tmpdir) / PRETRAINED_MODEL
-                if downloaded_path.exists():
-                    os.makedirs(destination.parent, exist_ok=True)
-                    shutil.copy2(str(downloaded_path), str(destination))
-                    print(f"✓ Saved weights to: {destination}")
-                
-                return model
-            finally:
-                os.chdir(original_dir)
+                # Verify download
+                if destination.exists() and destination.stat().st_size >= MIN_WEIGHT_BYTES:
+                    print(f"✓ Weights downloaded successfully")
+                    print(f"  Size: {destination.stat().st_size / 1024**2:.2f} MB")
+                    print(f"  Saved to: {destination}")
+                    
+                    # Load the model
+                    model = YOLO(str(destination))
+                    print(f"✓ Model loaded successfully")
+                    downloaded = True
+                    return model
+                else:
+                    if destination.exists():
+                        destination.unlink()  # Remove incomplete file
+            except urllib.error.HTTPError as e:
+                print(f"    ✗ Not found (HTTP {e.code})")
+                continue
+            except Exception as e:
+                print(f"    ✗ Failed: {e}")
+                continue
+        
+        if not downloaded:
+            raise RuntimeError("Could not download from any known URL")
+            
     except Exception as e:
         error_msg = f"Failed to download weights: {e}"
         print(f"\n❌ {error_msg}")
         print(f"\n💡 Suggestions:")
-        print(f"  1. Check internet connectivity")
-        print(f"  2. Manually download {PRETRAINED_MODEL} from Ultralytics")
-        print(f"  3. Place the file in: {BASE_DIR}")
-        print(f"  4. Or place it in: {destination.parent}")
+        print(f"  1. Check internet connectivity: ping github.com")
+        print(f"  2. Manually download {PRETRAINED_MODEL}")
+        print(f"     From: https://github.com/ultralytics/assets/releases/")
+        print(f"  3. Upload the file to Colab and place in: {BASE_DIR}")
+        print(f"  4. Or run: !wget <url> -O {destination}")
         raise RuntimeError(error_msg)
 
 def ensure_pretrained_model():
