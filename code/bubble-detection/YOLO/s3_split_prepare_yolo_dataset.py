@@ -99,34 +99,41 @@ def check_prerequisites():
     # Check for Step 1-2 checkpoint
     checkpoint = load_checkpoint("s1_2")
     if not checkpoint:
-        raise RuntimeError(
-            "❌ Step 1-2 has not been completed!\n"
-            "Please run: python s1_2_data_preparation.py"
-        )
-    
-    print("✓ Step 1-2 checkpoint found")
-    print(f"  Timestamp: {checkpoint['timestamp']}")
+        print("⚠ Warning: Step 1-2 checkpoint not found!")
+        print("  It's recommended to run: python s1_2_data_preparation.py")
+        print("  Continuing anyway...\n")
+    else:
+        print("✓ Step 1-2 checkpoint found")
+        print(f"  Timestamp: {checkpoint['timestamp']}")
     
     # Check for data records file
     if not os.path.exists(DATA_RECORDS_FILE):
-        raise FileNotFoundError(
-            f"❌ Data records file not found: {DATA_RECORDS_FILE}\n"
-            "Please re-run Step 1-2: python s1_2_data_preparation.py"
-        )
+        print(f"⚠ Warning: Data records file not found: {DATA_RECORDS_FILE}")
+        print("  It's recommended to run: python s1_2_data_preparation.py")
+        print("  Continuing anyway...\n")
+        return []  # Return empty list instead of raising error
     
     print(f"✓ Data records file found: {DATA_RECORDS_FILE}")
     
     # Load and validate data
-    with open(DATA_RECORDS_FILE, 'r') as f:
-        data_records = json.load(f)
-    
-    if not data_records:
-        raise ValueError("❌ Data records file is empty!")
-    
-    print(f"✓ Loaded {len(data_records)} data records")
-    print("\n✓ All prerequisites satisfied\n")
-    
-    return data_records
+    try:
+        with open(DATA_RECORDS_FILE, 'r') as f:
+            data_records = json.load(f)
+        
+        if not data_records:
+            print("⚠ Warning: Data records file is empty!")
+            print("  Please check your data preparation step")
+            return []
+        
+        print(f"✓ Loaded {len(data_records)} data records")
+        print("\n✓ All prerequisites satisfied\n")
+        
+        return data_records
+        
+    except Exception as e:
+        print(f"⚠ Warning: Could not load data records: {e}")
+        print("  Continuing with empty dataset...\n")
+        return []
 
 def check_partial_work():
     """
@@ -391,8 +398,18 @@ def main():
         print("\nSkipping to next step...")
         return
     
-    # Check prerequisites
+    # Check prerequisites (now returns empty list instead of raising error)
     data_records = check_prerequisites()
+    
+    # Check if we have any data to process
+    if not data_records:
+        print("\n" + "="*60)
+        print("⚠ No data records available!")
+        print("="*60)
+        print("\nCannot proceed without data records.")
+        print("Please run: python s1_2_data_preparation.py")
+        print("\nExiting gracefully...")
+        return
     
     # Create directories
     create_dataset_directories()

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-Step 5: Train YOLO Model (Family Agnostic)
-===========================================
+Step 5: Train YOLO Model (Family Agnostic) - INDEPENDENT VERSION
+=================================================================
 This script handles:
-- Validating that Step 4 was completed successfully
 - Detecting available device (MPS/CUDA/CPU)
 - Loading any pretrained YOLO family segmentation model
 - Training the model on the prepared dataset
@@ -11,17 +10,16 @@ This script handles:
 
 Model Support:
 - YOLOv8: yolov8n-seg.pt, yolov8s-seg.pt, yolov8m-seg.pt, yolov8l-seg.pt, yolov8x-seg.pt
-- YOLOv9: yolov9-seg.pt, yolov9e-seg.pt
 - YOLOv10: yolov10n-seg.pt, yolov10s-seg.pt, yolov10m-seg.pt, yolov10l-seg.pt, yolov10x-seg.pt
 - YOLO11: yolo11n-seg.pt, yolo11s-seg.pt, yolo11m-seg.pt, yolo11l-seg.pt, yolo11x-seg.pt
 
 Usage:
 - Simply change PRETRAINED_MODEL to any supported YOLO segmentation model
 - The code automatically adapts folder structure and naming
+- Can run independently without completing previous steps
 
 Prerequisites:
-- Step 4 must be completed successfully
-- dataset.yaml must exist and be valid
+- dataset.yaml must exist and be valid (run s4 once, then you can skip it)
 
 Outputs:
 - models/bubble-detection/{model_name}/: Training results
@@ -35,13 +33,13 @@ Note: This step does NOT use checkpointing - it always runs fresh.
 """
 
 import os
+import re
 import json
-import shutil
 import torch
 from pathlib import Path
 from datetime import datetime
 from ultralytics import YOLO
-import re
+import shutil
 
 # ===================================================================
 # Configuration
@@ -59,7 +57,7 @@ if not (BASE_DIR.endswith('/content') or BASE_DIR.endswith(END_WITH_LOCAL)):
 # Paths
 DATASET_DIR = os.path.join(BASE_DIR, 'data', 'YOLO_data')
 YAML_PATH = os.path.join(DATASET_DIR, 'dataset.yaml')
-PRETRAINED_MODEL = 'yolov11n-seg.pt'  # Change this to any YOLO model: yolo11n-seg.pt, etc.
+PRETRAINED_MODEL = 'yolov11n-seg.pt'  # Change this to any YOLO model
 
 # Extract model base name for folder structure (removes -seg and .pt)
 MODEL_BASE_NAME = re.sub(r'-seg\.pt$', '', PRETRAINED_MODEL)  # yolov8s-seg.pt -> yolov8s
@@ -74,6 +72,7 @@ MIN_WEIGHT_BYTES = 1 * 1024 * 1024  # 1 MB sanity check for pretrained weights
 EPOCHS = 1
 IMAGE_SIZE = 640
 BATCH_SIZE = 4
+DATA_FRACTION = 0.5  # Use 50% of training data
 
 PROJECT_NAME = os.path.join(BASE_DIR, 'models', 'bubble-detection', MODEL_BASE_NAME)
 
@@ -92,11 +91,9 @@ def get_next_run_name(project_dir, base_name='run'):
     # Extract numbers from run names
     run_numbers = []
     for run in existing_runs:
-        try:
-            num = int(run.replace(base_name, ''))
-            run_numbers.append(num)
-        except ValueError:
-            continue
+        match = re.search(r'(\d+)$', run)
+        if match:
+            run_numbers.append(int(match.group(1)))
     
     next_num = max(run_numbers) + 1 if run_numbers else 1
     return f"{base_name}{next_num}"
@@ -104,194 +101,149 @@ def get_next_run_name(project_dir, base_name='run'):
 RUN_NAME = get_next_run_name(PROJECT_NAME, base_name='balloon_seg_run')
 
 # ===================================================================
-# Checkpoint System
-# ===================================================================
-
-def load_checkpoint(step_name):
-    """Load checkpoint state. Returns None if not found or invalid."""
-    checkpoint_file = os.path.join(CHECKPOINT_DIR, f"{step_name}_complete.json")
-    if not os.path.exists(checkpoint_file):
-        return None
-    
-    try:
-        with open(checkpoint_file, 'r') as f:
-            checkpoint = json.load(f)
-        
-        if checkpoint.get("status") != "complete":
-            return None
-        
-        return checkpoint
-    except Exception as e:
-        print(f"⚠ Error loading checkpoint: {e}")
-        return None
-
-# ===================================================================
-# Validation Functions
+# Validation Functions (SIMPLIFIED)
 # ===================================================================
 
 def check_prerequisites():
-    """Check if Step 4 was completed successfully."""
+    """Check if dataset.yaml exists (minimal prerequisite check)."""
     print("\n" + "="*60)
     print("Checking Prerequisites")
     print("="*60)
     
-    # Check for Step 4 checkpoint
-    checkpoint = load_checkpoint("s4")
-    if not checkpoint:
-        raise RuntimeError(
-            "❌ Step 4 has not been completed!\n"
-            "Please run: python s4_create_yaml_config_file.py"
-        )
-    
-    print("✓ Step 4 checkpoint found")
-    print(f"  Timestamp: {checkpoint['timestamp']}")
-    print(f"  YAML file: {checkpoint['outputs']['yaml_path']}")
-    
-    # Check YAML file exists
+    # Only check YAML file - the ONE thing we actually need
     if not os.path.exists(YAML_PATH):
-        raise FileNotFoundError(
-            f"❌ YAML configuration file not found: {YAML_PATH}\n"
-            "Please re-run Step 4: python s4_create_yaml_config_file.py"
-        )
+        print("\n❌ YAML configuration file not found!")
+        print(f"Expected: {YAML_PATH}")
+        print("\nYou need to run Step 4 at least once:")
+        print("  python s4_create_yaml_config_file.py")
+        print("\nAfter that, you can run Step 5 independently anytime.")
+        raise FileNotFoundError(f"Missing dataset.yaml at {YAML_PATH}")
     
     print(f"✓ YAML configuration file found: {YAML_PATH}")
     
-    # Check dataset directories
+    # Verify YAML content
+    try:
+        import yaml
+        with open(YAML_PATH, 'r') as f:
+            yaml_content = yaml.safe_load(f)
+        
+        # Check required fields
+        required_fields = ['path', 'train', 'val', 'nc', 'names']
+        missing = [field for field in required_fields if field not in yaml_content]
+        
+        if missing:
+            raise ValueError(f"YAML missing required fields: {missing}")
+        
+        print(f"✓ YAML validated: {yaml_content['nc']} classes")
+        print(f"  Classes: {yaml_content['names']}")
+        
+    except Exception as e:
+        print(f"⚠ Warning: Could not validate YAML content: {e}")
+        print("  Proceeding anyway...")
+    
+    # Check if dataset directories exist (informational only)
     train_img_dir = os.path.join(DATASET_DIR, 'images/train')
     val_img_dir = os.path.join(DATASET_DIR, 'images/val')
     
-    if not os.path.exists(train_img_dir) or not os.listdir(train_img_dir):
-        raise FileNotFoundError(f"❌ Training images not found or empty: {train_img_dir}")
+    if os.path.exists(train_img_dir) and os.path.exists(val_img_dir):
+        train_count = len([f for f in os.listdir(train_img_dir) if f.endswith('.jpg')])
+        val_count = len([f for f in os.listdir(val_img_dir) if f.endswith('.jpg')])
+        print(f"\n✓ Dataset found:")
+        print(f"  Training images: {train_count}")
+        print(f"  Validation images: {val_count}")
+    else:
+        print("\n⚠ Warning: Dataset directories not found!")
+        print("  Training will fail if dataset is not prepared.")
     
-    if not os.path.exists(val_img_dir) or not os.listdir(val_img_dir):
-        raise FileNotFoundError(f"❌ Validation images not found or empty: {val_img_dir}")
-    
-    train_count = len(os.listdir(train_img_dir))
-    val_count = len(os.listdir(val_img_dir))
-    
-    print(f"✓ Training images: {train_count}")
-    print(f"✓ Validation images: {val_count}")
-    
-    print("\n✓ All prerequisites satisfied\n")
-    
-    return checkpoint
+    print("\n✓ Prerequisites check complete\n")
 
 def detect_device():
-    """Detect and configure the best available device for training."""
+    """Detect and return the best available device."""
     print("\n" + "="*60)
-    print("Detecting Hardware Device")
+    print("Detecting Hardware")
     print("="*60)
     
     if torch.cuda.is_available():
         device = "cuda"
-        gpu_name = torch.cuda.get_device_name(0)
-        gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
-        print(f"\n✓ CUDA GPU detected: {gpu_name}")
-        print(f"  Memory: {gpu_memory:.2f} GB")
-    # elif torch.backends.mps.is_available():
-    #     device = "mps"
-    #     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-    #     print(f"\n✓ Apple Silicon (MPS) detected")
-    #     print(f"  Metal Performance Shaders enabled")
+        print(f"✓ CUDA GPU detected: {torch.cuda.get_device_name(0)}")
+        print(f"  Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+    elif torch.backends.mps.is_available():
+        device = "mps"
+        print("✓ Apple Silicon (MPS) detected")
     else:
         device = "cpu"
-        print(f"\n⚠ No GPU detected. Using CPU")
-        print(f"  Warning: Training will be significantly slower!")
+        print("⚠ No GPU detected, using CPU")
+        print("  Note: Training will be SLOW on CPU!")
     
-    print(f"\n✓ Selected device: {device.upper()}")
+    print(f"\nUsing device: {device.upper()}")
     return device
 
 # ===================================================================
 # Main Training Function
 # ===================================================================
 
-
 def _backup_corrupted_weights(weight_path: Path) -> None:
-    """Rename a corrupted weights file so we can replace it cleanly."""
-    try:
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup_path = weight_path.with_suffix(weight_path.suffix + f".corrupt-{timestamp}")
-        shutil.move(str(weight_path), str(backup_path))
-        print(f"  ↪ Moved corrupted weights to: {backup_path}")
-    except Exception as backup_err:
-        print(f"  ⚠ Failed to backup corrupted weights ({backup_err}). Removing file instead.")
-        try:
-            weight_path.unlink(missing_ok=True)
-        except Exception as unlink_err:
-            print(f"  ⚠ Unable to delete corrupted weights ({unlink_err}).")
-
+    """Backup a potentially corrupted weight file."""
+    backup_path = weight_path.with_suffix('.pt.backup')
+    print(f"  Backing up to: {backup_path}")
+    shutil.move(str(weight_path), str(backup_path))
 
 def _candidate_weight_names():
-    """Yield possible model names to download, accounting for upstream naming differences."""
-    seen = set()
-    candidates = [PRETRAINED_MODEL]
-    if "yolov" in PRETRAINED_MODEL.lower():
-        candidates.append(PRETRAINED_MODEL.replace("yolov", "yolo"))
-
-    for name in candidates:
-        lowered = name.lower()
-        if lowered not in seen:
-            seen.add(lowered)
-            yield name
-
+    """Generate list of candidate weight filenames to check."""
+    return [
+        PRETRAINED_MODEL,
+        PRETRAINED_MODEL.replace('-seg', ''),  # Try without -seg
+        PRETRAINED_MODEL.lower(),
+        PRETRAINED_MODEL.upper(),
+    ]
 
 def _download_pretrained_weights(destination: Path):
-    """Download pretrained weights via Ultralytics and cache them locally."""
-    last_error = None
-    for candidate in _candidate_weight_names():
-        try:
-            print(f"↻ Downloading fresh weights using key '{candidate}' from Ultralytics hub...")
-            temp_model = YOLO(candidate)
-            src_path = Path(getattr(temp_model, "ckpt_path", ""))
-            if not src_path.exists():
-                raise FileNotFoundError(
-                    f"Ultralytics cache did not expose weights for '{candidate}' (looked for {src_path})."
-                )
-
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_path, destination)
-            print(f"✓ Saved downloaded weights to: {destination}")
-            return YOLO(str(destination))
-        except Exception as err:
-            last_error = err
-            print(f"  ⚠ Failed to download using '{candidate}': {err}")
-
-    raise RuntimeError(
-        "Unable to fetch pretrained weights after trying known aliases. "
-        f"Last error: {last_error}"
-    )
-
+    """Download pretrained weights using YOLO's built-in downloader."""
+    print(f"\n📥 Downloading pretrained weights...")
+    try:
+        # YOLO will automatically download if not found
+        model = YOLO(PRETRAINED_MODEL)
+        print(f"✓ Weights downloaded successfully")
+        return model
+    except Exception as e:
+        raise RuntimeError(f"Failed to download weights: {e}")
 
 def ensure_pretrained_model():
-    """Return a YOLO model instance, ensuring valid pretrained weights exist locally."""
-    model_path = Path(WEIGHTS_DIR) / PRETRAINED_MODEL
-
-    if not model_path.exists():
-        print(f"⚠ Local weights not found at: {model_path}")
-        return _download_pretrained_weights(model_path)
-
-    try:
-        size_bytes = model_path.stat().st_size
-    except FileNotFoundError:
-        size_bytes = 0
-
-    if size_bytes < MIN_WEIGHT_BYTES:
-        print(
-            f"⚠ Detected incomplete weights ({size_bytes} bytes). "
-            "Expected a file larger than 1 MB."
-        )
-        _backup_corrupted_weights(model_path)
-        return _download_pretrained_weights(model_path)
-
-    try:
-        model = YOLO(str(model_path))
-        print("✓ Model weights loaded successfully")
-        return model
-    except Exception as load_err:
-        print(f"⚠ Failed to initialize model with local weights: {load_err}")
-        _backup_corrupted_weights(model_path)
-        return _download_pretrained_weights(model_path)
-
+    """Ensure pretrained model is available and valid."""
+    print("\n" + "="*60)
+    print(f"Loading Pretrained Model: {PRETRAINED_MODEL}")
+    print("="*60)
+    
+    os.makedirs(WEIGHTS_DIR, exist_ok=True)
+    
+    # Try to find existing weights
+    for candidate_name in _candidate_weight_names():
+        weight_path = Path(WEIGHTS_DIR) / candidate_name
+        
+        if weight_path.exists():
+            file_size = weight_path.stat().st_size
+            print(f"\n✓ Found existing weights: {weight_path}")
+            print(f"  Size: {file_size / 1024**2:.2f} MB")
+            
+            # Sanity check: file should be at least 1 MB
+            if file_size < MIN_WEIGHT_BYTES:
+                print(f"  ⚠ File too small (< 1MB), possibly corrupted")
+                _backup_corrupted_weights(weight_path)
+                continue
+            
+            # Try loading the model
+            try:
+                model = YOLO(str(weight_path))
+                print(f"✓ Model loaded successfully")
+                return model
+            except Exception as e:
+                print(f"  ⚠ Failed to load model: {e}")
+                _backup_corrupted_weights(weight_path)
+                continue
+    
+    # No valid weights found, download
+    print(f"\n⚠ No valid pretrained weights found in {WEIGHTS_DIR}")
+    return _download_pretrained_weights(Path(WEIGHTS_DIR) / PRETRAINED_MODEL)
 
 def train_model(device):
     """Train the YOLO segmentation model."""
@@ -307,6 +259,7 @@ def train_model(device):
     print(f"  Epochs: {EPOCHS}")
     print(f"  Image Size: {IMAGE_SIZE}")
     print(f"  Batch Size: {BATCH_SIZE}")
+    print(f"  Data Fraction: {DATA_FRACTION * 100:.0f}%")
     print(f"  Output: {PROJECT_NAME}/{RUN_NAME}")
     
     # Ensure pretrained weights are available and loadable
@@ -337,7 +290,77 @@ def train_model(device):
             name=RUN_NAME,
             exist_ok=True,
             verbose=True,
-            workers=1
+            workers=1,
+            
+            # ============ Optimizer & Learning Rate ============
+            optimizer='AdamW',      # Better for short training runs than SGD
+            lr0=0.001,              # Lower initial LR for stability in 1 epoch
+            lrf=0.1,                # Final LR will be 0.0001
+            momentum=0.9,           # Slightly lower for single epoch
+            weight_decay=0.0005,
+            warmup_epochs=0.0,      # No warmup needed for 1 epoch
+            warmup_momentum=0.8,
+            warmup_bias_lr=0.1,
+            cos_lr=False,           # Linear LR decay fine for 1 epoch
+            
+            # ============ Loss Weights (Balanced) ============
+            box=7.5,
+            cls=0.5,
+            dfl=1.5,
+            
+            # ============ Data Augmentation (AGGRESSIVE) ============
+            # Geometric Augmentations
+            mosaic=1.0,             # Keep mosaic for better feature learning
+            close_mosaic=0,         # Don't close mosaic (only 1 epoch)
+            mixup=0.15,             # Moderate mixup for regularization
+            copy_paste=0.3,         # Good for segmentation tasks
+            degrees=15.0,           # Increased rotation
+            translate=0.2,          # Increased translation
+            scale=0.7,              # Increased scale variation
+            shear=5.0,              # Added shear
+            perspective=0.0005,     # Added perspective distortion
+            fliplr=0.5,             # Keep horizontal flip
+            flipud=0.0,             # No vertical flip for speech bubbles
+            
+            # Color Augmentations
+            hsv_h=0.02,             # Slightly increased hue
+            hsv_s=0.7,              # Keep saturation
+            hsv_v=0.4,              # Keep brightness
+            auto_augment='randaugment',  # Keep auto augmentation
+            erasing=0.4,            # Random erasing for robustness
+            bgr=0.0,                # No BGR swap
+            
+            # ============ Performance & Memory ============
+            cache=False,            # No caching (saves disk space)
+            amp=True,               # Automatic Mixed Precision
+            multi_scale=False,      # Disable for faster training
+            rect=False,             # Disable rectangular training
+            deterministic=False,    # Allow non-deterministic for speed
+            compile=False,          # Avoid compilation overhead for 1 epoch
+            half=False,             # AMP handles precision
+            
+            # ============ Regularization (Anti-Overfitting) ============
+            dropout=0.15,           # Add dropout for regularization
+            overlap_mask=True,
+            mask_ratio=4,
+            retina_masks=False,
+            
+            # ============ Validation & Monitoring ============
+            val=True,
+            plots=True,
+            save=True,
+            save_period=-1,         # Only save best and last
+            patience=100,           # Not relevant for 1 epoch
+            conf=None,
+            iou=0.7,
+            max_det=300,
+            single_cls=False,
+            
+            # ============ Other ============
+            fraction=DATA_FRACTION, # Use specified fraction of data
+            seed=42,                # For reproducibility
+            pretrained=True,
+            freeze=None,            # Don't freeze any layers
         )
         
         print("\n" + "="*60)
@@ -390,10 +413,10 @@ def main():
     print(f"# Pipeline Step 5: Train {MODEL_FAMILY_NAME} Model")
     print("#"*60)
     
-    print("\nNote: This step always runs fresh (no checkpointing).")
-    print("This allows retraining with different parameters if needed.\n")
+    print("\n✨ INDEPENDENT MODE: This script can run without completing previous steps")
+    print("   (as long as dataset.yaml exists)\n")
     
-    # Check prerequisites
+    # Check prerequisites (only YAML file)
     check_prerequisites()
     
     # Detect device
@@ -405,24 +428,11 @@ def main():
     print("\n" + "="*60)
     print("✓ Step 5 Complete!")
     print("="*60)
-    print(f"\nModel training finished successfully!")
-    print(f"Results directory: {training_info['save_dir']}")
-    print(f"Best model: {training_info['best_model']}")
-    print(f"\nReady for Step 6: Model evaluation")
-    
-    # Save training info for next step (not a checkpoint, just metadata)
-    training_info_file = os.path.join(CHECKPOINT_DIR, 's5_training_info.json')
-    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-    with open(training_info_file, 'w') as f:
-        json.dump({
-            "timestamp": datetime.now().isoformat(),
-            "training_info": training_info,
-            "device": device,
-            "epochs": EPOCHS,
-            "image_size": IMAGE_SIZE,
-            "batch_size": BATCH_SIZE
-        }, f, indent=2)
-    print(f"\nTraining metadata saved to: {training_info_file}")
+    print(f"\nModel saved to: {training_info['best_model']}")
+    print(f"\nYou can now:")
+    print(f"  1. Run evaluation: python s6_eval_model.py")
+    print(f"  2. Retrain with different parameters (just edit and re-run this script)")
+    print(f"  3. Use the model for inference")
 
 if __name__ == '__main__':
     try:
