@@ -36,6 +36,7 @@ import os
 import re
 import json
 import torch
+import tempfile
 from pathlib import Path
 from datetime import datetime
 from ultralytics import YOLO
@@ -202,7 +203,7 @@ def _download_pretrained_weights(destination: Path):
     """Download pretrained weights using YOLO's built-in downloader."""
     print(f"\n📥 Attempting to download/locate pretrained weights...")
     
-    # Check if weights exist in BASE_DIR (root directory)
+    # Strategy 1: Check if weights exist in BASE_DIR (root directory)
     root_weight_path = Path(BASE_DIR) / PRETRAINED_MODEL
     if root_weight_path.exists():
         file_size = root_weight_path.stat().st_size
@@ -222,21 +223,58 @@ def _download_pretrained_weights(destination: Path):
             except Exception as e:
                 print(f"  ⚠ Failed to load model from root: {e}")
     
-    # Try to let YOLO download it automatically
+    # Strategy 2: Check current working directory
+    cwd_weight_path = Path.cwd() / PRETRAINED_MODEL
+    if cwd_weight_path.exists() and cwd_weight_path != root_weight_path:
+        file_size = cwd_weight_path.stat().st_size
+        print(f"✓ Found weights in current directory: {cwd_weight_path}")
+        print(f"  Size: {file_size / 1024**2:.2f} MB")
+        
+        if file_size >= MIN_WEIGHT_BYTES:
+            try:
+                model = YOLO(str(cwd_weight_path))
+                print(f"✓ Model loaded successfully from current directory")
+                
+                # Copy to destination for future use
+                os.makedirs(destination.parent, exist_ok=True)
+                shutil.copy2(str(cwd_weight_path), str(destination))
+                print(f"✓ Copied weights to: {destination}")
+                return model
+            except Exception as e:
+                print(f"  ⚠ Failed to load model from current directory: {e}")
+    
+    # Strategy 3: Let YOLO download from Ultralytics (requires internet)
     try:
-        print(f"  Attempting automatic download...")
-        model = YOLO(PRETRAINED_MODEL)
-        print(f"✓ Weights downloaded successfully")
+        print(f"  Attempting automatic download from Ultralytics...")
+        print(f"  This requires internet connectivity...")
         
-        # Try to move downloaded weights to proper location
-        if os.path.exists(PRETRAINED_MODEL):
-            os.makedirs(destination.parent, exist_ok=True)
-            shutil.move(PRETRAINED_MODEL, str(destination))
-            print(f"✓ Moved weights to: {destination}")
-        
-        return model
+        # Change to a temporary directory to avoid file conflicts
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_dir = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                model = YOLO(PRETRAINED_MODEL)
+                print(f"✓ Weights downloaded successfully")
+                
+                # Copy downloaded weights to destination
+                downloaded_path = Path(tmpdir) / PRETRAINED_MODEL
+                if downloaded_path.exists():
+                    os.makedirs(destination.parent, exist_ok=True)
+                    shutil.copy2(str(downloaded_path), str(destination))
+                    print(f"✓ Saved weights to: {destination}")
+                
+                return model
+            finally:
+                os.chdir(original_dir)
     except Exception as e:
-        raise RuntimeError(f"Failed to download weights: {e}")
+        error_msg = f"Failed to download weights: {e}"
+        print(f"\n❌ {error_msg}")
+        print(f"\n💡 Suggestions:")
+        print(f"  1. Check internet connectivity")
+        print(f"  2. Manually download {PRETRAINED_MODEL} from Ultralytics")
+        print(f"  3. Place the file in: {BASE_DIR}")
+        print(f"  4. Or place it in: {destination.parent}")
+        raise RuntimeError(error_msg)
 
 def ensure_pretrained_model():
     """Ensure pretrained model is available and valid."""
