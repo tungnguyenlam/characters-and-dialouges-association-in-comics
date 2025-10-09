@@ -202,104 +202,50 @@ def _candidate_weight_names():
     ]
 
 def _download_pretrained_weights(destination: Path):
-    """Download pretrained weights using YOLO's built-in downloader."""
-    print(f"\n📥 Attempting to download/locate pretrained weights...")
+    """Download pretrained weights from GitHub releases."""
+    print(f"\n📥 Attempting to download from GitHub releases...")
+    print(f"  This requires internet connectivity...")
     
-    # Strategy 1: Check if weights exist in BASE_DIR (root directory)
-    root_weight_path = Path(BASE_DIR) / PRETRAINED_MODEL
-    if root_weight_path.exists():
-        file_size = root_weight_path.stat().st_size
-        print(f"✓ Found weights in root directory: {root_weight_path}")
-        print(f"  Size: {file_size / 1024**2:.2f} MB")
-        
-        if file_size >= MIN_WEIGHT_BYTES:
-            try:
-                model = YOLO(str(root_weight_path))
-                print(f"✓ Model loaded successfully from root directory")
-                
-                # Copy to destination for future use
-                os.makedirs(destination.parent, exist_ok=True)
-                shutil.copy2(str(root_weight_path), str(destination))
-                print(f"✓ Copied weights to: {destination}")
-                return model
-            except Exception as e:
-                print(f"  ⚠ Failed to load model from root: {e}")
+    # Ultralytics hosts YOLO models on GitHub releases
+    # URL pattern: https://github.com/ultralytics/assets/releases/download/v{version}/{model}
+    # For YOLO11, version is typically v8.3.0 or later
     
-    # Strategy 2: Check current working directory
-    cwd_weight_path = Path.cwd() / PRETRAINED_MODEL
-    if cwd_weight_path.exists() and cwd_weight_path != root_weight_path:
-        file_size = cwd_weight_path.stat().st_size
-        print(f"✓ Found weights in current directory: {cwd_weight_path}")
-        print(f"  Size: {file_size / 1024**2:.2f} MB")
-        
-        if file_size >= MIN_WEIGHT_BYTES:
-            try:
-                model = YOLO(str(cwd_weight_path))
-                print(f"✓ Model loaded successfully from current directory")
-                
-                # Copy to destination for future use
-                os.makedirs(destination.parent, exist_ok=True)
-                shutil.copy2(str(cwd_weight_path), str(destination))
-                print(f"✓ Copied weights to: {destination}")
-                return model
-            except Exception as e:
-                print(f"  ⚠ Failed to load model from current directory: {e}")
+    # Try multiple possible URLs
+    possible_urls = [
+        f"https://github.com/ultralytics/assets/releases/download/v8.3.0/{PRETRAINED_MODEL}",
+        f"https://github.com/ultralytics/assets/releases/download/v0.0.0/{PRETRAINED_MODEL}",
+    ]
     
-    # Strategy 3: Download using wget/curl (requires internet)
-    try:
-        print(f"  Attempting download from GitHub releases...")
-        print(f"  This requires internet connectivity...")
-        
-        # Ultralytics hosts YOLO models on GitHub releases
-        # URL pattern: https://github.com/ultralytics/assets/releases/download/v{version}/{model}
-        # For YOLO11, version is typically v8.3.0 or later
-        
-        # Try multiple possible URLs
-        possible_urls = [
-            f"https://github.com/ultralytics/assets/releases/download/v8.3.0/{PRETRAINED_MODEL}",
-            f"https://github.com/ultralytics/assets/releases/download/v0.0.0/{PRETRAINED_MODEL}",
-        ]
-        
-        downloaded = False
-        for url in possible_urls:
-            try:
-                print(f"    Trying: {url}")
-                urllib.request.urlretrieve(url, str(destination))
-                
-                # Verify download
-                if destination.exists() and destination.stat().st_size >= MIN_WEIGHT_BYTES:
-                    print(f"✓ Weights downloaded successfully")
-                    print(f"  Size: {destination.stat().st_size / 1024**2:.2f} MB")
-                    print(f"  Saved to: {destination}")
-                    
-                    # Load the model
-                    model = YOLO(str(destination))
-                    print(f"✓ Model loaded successfully")
-                    downloaded = True
-                    return model
-                else:
-                    if destination.exists():
-                        destination.unlink()  # Remove incomplete file
-            except urllib.error.HTTPError as e:
-                print(f"    ✗ Not found (HTTP {e.code})")
-                continue
-            except Exception as e:
-                print(f"    ✗ Failed: {e}")
-                continue
-        
-        if not downloaded:
-            raise RuntimeError("Could not download from any known URL")
+    downloaded = False
+    for url in possible_urls:
+        try:
+            print(f"    Trying: {url}")
+            urllib.request.urlretrieve(url, str(destination))
             
-    except Exception as e:
-        error_msg = f"Failed to download weights: {e}"
-        print(f"\n❌ {error_msg}")
-        print(f"\n💡 Suggestions:")
-        print(f"  1. Check internet connectivity: ping github.com")
-        print(f"  2. Manually download {PRETRAINED_MODEL}")
-        print(f"     From: https://github.com/ultralytics/assets/releases/")
-        print(f"  3. Upload the file to Colab and place in: {BASE_DIR}")
-        print(f"  4. Or run: !wget <url> -O {destination}")
-        raise RuntimeError(error_msg)
+            # Verify download
+            if destination.exists() and destination.stat().st_size >= MIN_WEIGHT_BYTES:
+                print(f"✓ Weights downloaded successfully")
+                print(f"  Size: {destination.stat().st_size / 1024**2:.2f} MB")
+                print(f"  Saved to: {destination}")
+                
+                # Load the model
+                model = YOLO(str(destination))
+                print(f"✓ Model loaded successfully")
+                downloaded = True
+                return model
+            else:
+                if destination.exists():
+                    destination.unlink()  # Remove incomplete file
+        except urllib.error.HTTPError as e:
+            print(f"    ✗ Not found (HTTP {e.code})")
+            continue
+        except Exception as e:
+            print(f"    ✗ Failed: {e}")
+            continue
+    
+    if not downloaded:
+        raise RuntimeError("Could not download from any known URL")
+
 
 def ensure_pretrained_model():
     """Ensure pretrained model is available and valid."""
@@ -309,7 +255,7 @@ def ensure_pretrained_model():
     
     os.makedirs(WEIGHTS_DIR, exist_ok=True)
     
-    # Try to find existing weights
+    # First, try to find existing weights in WEIGHTS_DIR
     for candidate_name in _candidate_weight_names():
         weight_path = Path(WEIGHTS_DIR) / candidate_name
         
@@ -334,9 +280,64 @@ def ensure_pretrained_model():
                 _backup_corrupted_weights(weight_path)
                 continue
     
-    # No valid weights found, download
     print(f"\n⚠ No valid pretrained weights found in {WEIGHTS_DIR}")
-    return _download_pretrained_weights(Path(WEIGHTS_DIR) / PRETRAINED_MODEL)
+    
+    # Before downloading, check if weights exist in BASE_DIR (root directory)
+    print(f"\nChecking alternative locations...")
+    root_weight_path = Path(BASE_DIR) / PRETRAINED_MODEL
+    if root_weight_path.exists():
+        file_size = root_weight_path.stat().st_size
+        print(f"✓ Found weights in root directory: {root_weight_path}")
+        print(f"  Size: {file_size / 1024**2:.2f} MB")
+        
+        if file_size >= MIN_WEIGHT_BYTES:
+            try:
+                model = YOLO(str(root_weight_path))
+                print(f"✓ Model loaded successfully from root directory")
+                
+                # Copy to WEIGHTS_DIR for future use
+                dest_path = Path(WEIGHTS_DIR) / PRETRAINED_MODEL
+                shutil.copy2(str(root_weight_path), str(dest_path))
+                print(f"✓ Copied weights to: {dest_path}")
+                return model
+            except Exception as e:
+                print(f"  ⚠ Failed to load model from root: {e}")
+    
+    # Check current working directory
+    cwd_weight_path = Path.cwd() / PRETRAINED_MODEL
+    if cwd_weight_path.exists() and cwd_weight_path != root_weight_path:
+        file_size = cwd_weight_path.stat().st_size
+        print(f"✓ Found weights in current directory: {cwd_weight_path}")
+        print(f"  Size: {file_size / 1024**2:.2f} MB")
+        
+        if file_size >= MIN_WEIGHT_BYTES:
+            try:
+                model = YOLO(str(cwd_weight_path))
+                print(f"✓ Model loaded successfully from current directory")
+                
+                # Copy to WEIGHTS_DIR for future use
+                dest_path = Path(WEIGHTS_DIR) / PRETRAINED_MODEL
+                shutil.copy2(str(cwd_weight_path), str(dest_path))
+                print(f"✓ Copied weights to: {dest_path}")
+                return model
+            except Exception as e:
+                print(f"  ⚠ Failed to load model from current directory: {e}")
+    
+    # No weights found anywhere, try to download
+    try:
+        return _download_pretrained_weights(Path(WEIGHTS_DIR) / PRETRAINED_MODEL)
+    except Exception as e:
+        error_msg = f"Failed to download weights: {e}"
+        print(f"\n❌ {error_msg}")
+        print(f"\n💡 Suggestions:")
+        print(f"  1. Check internet connectivity: ping github.com")
+        print(f"  2. Manually download {PRETRAINED_MODEL}")
+        print(f"     From: https://github.com/ultralytics/assets/releases/")
+        print(f"  3. Upload the file to Colab and place in: {BASE_DIR}")
+        print(f"     Current BASE_DIR: {BASE_DIR}")
+        print(f"  4. Or place in weights directory: {WEIGHTS_DIR}")
+        print(f"  5. Verify file was uploaded correctly: ls -lh {BASE_DIR}/{PRETRAINED_MODEL}")
+        raise RuntimeError(error_msg)
 
 def train_model(device):
     """Train the YOLO segmentation model."""
