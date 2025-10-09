@@ -36,6 +36,7 @@ Note: This step does NOT use checkpointing - it always runs fresh.
 
 import os
 import json
+import shutil
 import torch
 from pathlib import Path
 from datetime import datetime
@@ -58,7 +59,7 @@ if not (BASE_DIR.endswith('/content') or BASE_DIR.endswith(END_WITH_LOCAL)):
 # Paths
 DATASET_DIR = os.path.join(BASE_DIR, 'data', 'YOLO_data')
 YAML_PATH = os.path.join(DATASET_DIR, 'dataset.yaml')
-PRETRAINED_MODEL = 'yolov8n-seg.pt'  # Change this to any YOLO model: yolo11n-seg.pt, yolov9-seg.pt, etc.
+PRETRAINED_MODEL = 'yolov11n-seg.pt'  # Change this to any YOLO model: yolo11n-seg.pt, etc.
 
 # Extract model base name for folder structure (removes -seg and .pt)
 MODEL_BASE_NAME = re.sub(r'-seg\.pt$', '', PRETRAINED_MODEL)  # yolov8s-seg.pt -> yolov8s
@@ -67,11 +68,13 @@ MODEL_FAMILY_NAME = MODEL_FAMILY.group(1).upper() if MODEL_FAMILY else 'YOLO'  #
 
 CHECKPOINT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection','YOLO', '.pipeline_state')
 WEIGHTS_DIR = os.path.join(BASE_DIR, 'models', 'bubble-detection', MODEL_FAMILY_NAME, 'weights')
+MIN_WEIGHT_BYTES = 1 * 1024 * 1024  # 1 MB sanity check for pretrained weights
 
 # Training parameters
 EPOCHS = 1
 IMAGE_SIZE = 640
-BATCH_SIZE = 1
+BATCH_SIZE = 4
+
 PROJECT_NAME = os.path.join(BASE_DIR, 'models', 'bubble-detection', MODEL_BASE_NAME)
 
 # Dynamic run name based on existing runs
@@ -202,6 +205,94 @@ def detect_device():
 # Main Training Function
 # ===================================================================
 
+
+def _backup_corrupted_weights(weight_path: Path) -> None:
+    """Rename a corrupted weights file so we can replace it cleanly."""
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup_path = weight_path.with_suffix(weight_path.suffix + f".corrupt-{timestamp}")
+        shutil.move(str(weight_path), str(backup_path))
+        print(f"  ↪ Moved corrupted weights to: {backup_path}")
+    except Exception as backup_err:
+        print(f"  ⚠ Failed to backup corrupted weights ({backup_err}). Removing file instead.")
+        try:
+            weight_path.unlink(missing_ok=True)
+        except Exception as unlink_err:
+            print(f"  ⚠ Unable to delete corrupted weights ({unlink_err}).")
+
+
+def _candidate_weight_names():
+    """Yield possible model names to download, accounting for upstream naming differences."""
+    seen = set()
+    candidates = [PRETRAINED_MODEL]
+    if "yolov" in PRETRAINED_MODEL.lower():
+        candidates.append(PRETRAINED_MODEL.replace("yolov", "yolo"))
+
+    for name in candidates:
+        lowered = name.lower()
+        if lowered not in seen:
+            seen.add(lowered)
+            yield name
+
+
+def _download_pretrained_weights(destination: Path):
+    """Download pretrained weights via Ultralytics and cache them locally."""
+    last_error = None
+    for candidate in _candidate_weight_names():
+        try:
+            print(f"↻ Downloading fresh weights using key '{candidate}' from Ultralytics hub...")
+            temp_model = YOLO(candidate)
+            src_path = Path(getattr(temp_model, "ckpt_path", ""))
+            if not src_path.exists():
+                raise FileNotFoundError(
+                    f"Ultralytics cache did not expose weights for '{candidate}' (looked for {src_path})."
+                )
+
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_path, destination)
+            print(f"✓ Saved downloaded weights to: {destination}")
+            return YOLO(str(destination))
+        except Exception as err:
+            last_error = err
+            print(f"  ⚠ Failed to download using '{candidate}': {err}")
+
+    raise RuntimeError(
+        "Unable to fetch pretrained weights after trying known aliases. "
+        f"Last error: {last_error}"
+    )
+
+
+def ensure_pretrained_model():
+    """Return a YOLO model instance, ensuring valid pretrained weights exist locally."""
+    model_path = Path(WEIGHTS_DIR) / PRETRAINED_MODEL
+
+    if not model_path.exists():
+        print(f"⚠ Local weights not found at: {model_path}")
+        return _download_pretrained_weights(model_path)
+
+    try:
+        size_bytes = model_path.stat().st_size
+    except FileNotFoundError:
+        size_bytes = 0
+
+    if size_bytes < MIN_WEIGHT_BYTES:
+        print(
+            f"⚠ Detected incomplete weights ({size_bytes} bytes). "
+            "Expected a file larger than 1 MB."
+        )
+        _backup_corrupted_weights(model_path)
+        return _download_pretrained_weights(model_path)
+
+    try:
+        model = YOLO(str(model_path))
+        print("✓ Model weights loaded successfully")
+        return model
+    except Exception as load_err:
+        print(f"⚠ Failed to initialize model with local weights: {load_err}")
+        _backup_corrupted_weights(model_path)
+        return _download_pretrained_weights(model_path)
+
+
 def train_model(device):
     """Train the YOLO segmentation model."""
     print("\n" + "="*60)
@@ -218,23 +309,15 @@ def train_model(device):
     print(f"  Batch Size: {BATCH_SIZE}")
     print(f"  Output: {PROJECT_NAME}/{RUN_NAME}")
     
-    # Create weights directory if it doesn't exist
+    # Ensure pretrained weights are available and loadable
     os.makedirs(WEIGHTS_DIR, exist_ok=True)
-    
-    # Full path to model weights
-    model_path = os.path.join(WEIGHTS_DIR, PRETRAINED_MODEL)
-    
-    # Load pretrained model
+    model_path = Path(WEIGHTS_DIR) / PRETRAINED_MODEL
+
     print(f"\nLoading pretrained model: {model_path}")
-    os.chdir(WEIGHTS_DIR)
     try:
-        model = YOLO(PRETRAINED_MODEL)
-        print("✓ Model loaded successfully")
+        model = ensure_pretrained_model()
     except Exception as e:
-        raise RuntimeError(f"❌ Failed to load model: {e}")
-    os.chdir(BASE_DIR)
-    # Start training
-    # ...existing code...
+        raise RuntimeError(f"❌ Failed to prepare pretrained model: {e}")
     
     # Start training
     print("\n" + "="*60)
@@ -254,7 +337,7 @@ def train_model(device):
             name=RUN_NAME,
             exist_ok=True,
             verbose=True,
-            workers=2
+            workers=1
         )
         
         print("\n" + "="*60)
