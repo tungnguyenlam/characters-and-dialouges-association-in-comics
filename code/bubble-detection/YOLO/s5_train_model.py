@@ -74,6 +74,7 @@ MIN_WEIGHT_BYTES = 1 * 1024 * 1024  # 1 MB sanity check for pretrained weights
 EPOCHS = 1
 IMAGE_SIZE = 640
 BATCH_SIZE = 4
+DATA_FRACTION = 0.5  # Use 50% of the training data by default
 
 PROJECT_NAME = os.path.join(BASE_DIR, 'models', 'bubble-detection', MODEL_BASE_NAME)
 
@@ -337,7 +338,71 @@ def train_model(device):
             name=RUN_NAME,
             exist_ok=True,
             verbose=True,
-            workers=1
+            workers=1,
+
+            # ============ Optimizer & Learning Rate ============
+            optimizer='AdamW',
+            lr0=0.001,
+            lrf=0.1,
+            momentum=0.9,
+            weight_decay=0.0005,
+            warmup_epochs=0.0,
+            warmup_momentum=0.8,
+            warmup_bias_lr=0.1,
+            cos_lr=False,
+
+            # ============ Loss Weights (Balanced) ============
+            box=7.5,
+            cls=0.5,
+            dfl=1.5,
+
+            # ============ Data Augmentation (AGGRESSIVE) ============
+            mosaic=1.0,
+            mixup=0.15,
+            copy_paste=0.3,
+            degrees=15.0,
+            translate=0.2,
+            scale=0.7,
+            shear=5.0,
+            perspective=0.0005,
+            fliplr=0.5,
+            flipud=0.0,
+
+            # Color Augmentations
+            hsv_h=0.02,
+            hsv_s=0.7,
+            hsv_v=0.4,
+
+            # ============ Performance & Memory ============
+            cache=False,
+            amp=True,
+            multi_scale=False,
+            rect=False,
+            deterministic=False,
+            compile=False,
+            half=False,
+
+            # ============ Regularization (Anti-Overfitting) ============
+            overlap_mask=True,
+            mask_ratio=4,
+            retina_masks=False,
+
+            # ============ Validation & Monitoring ============
+            val=True,
+            plots=True,
+            save=True,
+            save_period=-1,
+            patience=100,
+            conf=None,
+            iou=0.7,
+            max_det=300,
+            single_cls=False,
+
+            # ============ Other ============
+            fraction=DATA_FRACTION,
+            seed=42,
+            pretrained=True,
+            freeze=None,
         )
         
         print("\n" + "="*60)
