@@ -36,7 +36,6 @@ import os
 import re
 import json
 import torch
-import tempfile
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -44,6 +43,8 @@ from datetime import datetime
 from ultralytics import YOLO
 import shutil
 import yaml
+
+from typing import List, Optional, Sequence, Set
 
 # ===================================================================
 # Configuration
@@ -194,12 +195,123 @@ def _backup_corrupted_weights(weight_path: Path) -> None:
 
 def _candidate_weight_names():
     """Generate list of candidate weight filenames to check."""
-    return [
+    base = PRETRAINED_MODEL.replace('-seg', '')
+    names = {
         PRETRAINED_MODEL,
-        PRETRAINED_MODEL.replace('-seg', ''),  # Try without -seg
         PRETRAINED_MODEL.lower(),
         PRETRAINED_MODEL.upper(),
+        base,
+        base.lower(),
+        base.upper(),
+        f"{base}-seg.pt",
+        f"{base}.pt",
+    }
+    return [name for name in names if name]
+
+
+def _parse_additional_dirs(value: Optional[str]) -> List[Path]:
+    """Parse colon/semicolon separated list of directories from environment variable."""
+    if not value:
+        return []
+    dirs: List[Path] = []
+    for item in value.split(os.pathsep):
+        if not item:
+            continue
+        path = Path(item).expanduser()
+        dirs.append(path)
+    return dirs
+
+
+def _unique_existing_dirs(paths: Sequence[Path]) -> List[Path]:
+    """Deduplicate and keep only existing directories, preserving order."""
+    unique: List[Path] = []
+    seen: Set[Path] = set()
+    for path in paths:
+        try:
+            resolved = path.resolve()
+        except FileNotFoundError:
+            continue
+        if not path.exists():
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(path)
+    return unique
+
+
+def _match_weight_file(path: Path) -> bool:
+    """Return True if path looks like the desired pretrained weight."""
+    if not path.is_file():
+        return False
+
+    filename = path.name.lower()
+    targets = {name.lower() for name in _candidate_weight_names()}
+    if filename in targets:
+        return True
+
+    # Heuristic: ensure base model name appears in filename for unexpected variants
+    base = PRETRAINED_MODEL.replace('.pt', '').replace('-seg', '').lower()
+    return base in filename and filename.endswith('.pt')
+
+
+def _locate_existing_weight() -> Optional[Path]:
+    """Attempt to locate an existing pretrained weight file."""
+    print("\n🔍 Searching for existing pretrained weights...")
+
+    env_path = os.environ.get('YOLO_PRETRAINED_PATH')
+    if env_path:
+        candidate = Path(env_path).expanduser()
+        print(f"  Checking YOLO_PRETRAINED_PATH={candidate}")
+        if _match_weight_file(candidate):
+            print(f"✓ Found via YOLO_PRETRAINED_PATH: {candidate}")
+            return candidate
+        else:
+            print("  ⚠ Path from YOLO_PRETRAINED_PATH is invalid or not found")
+
+    additional_dirs = _parse_additional_dirs(os.environ.get('YOLO_WEIGHTS_DIRS'))
+
+    common_dirs = [
+        Path(WEIGHTS_DIR),
+        Path(WEIGHTS_DIR).parent,
+        Path(BASE_DIR),
+        Path(BASE_DIR) / 'models',
+        Path(BASE_DIR) / 'weights',
+        Path(BASE_DIR) / 'pretrained',
+        Path.cwd(),
+        Path(BASE_DIR).parent,
+        Path('/content') if Path('/content').exists() else None,
+        Path.home(),
     ]
+
+    search_dirs = _unique_existing_dirs([
+        *(path for path in common_dirs if path),
+        *additional_dirs,
+    ])
+
+    # Direct check for each candidate filename in directories
+    candidate_names = _candidate_weight_names()
+    for directory in search_dirs:
+        for name in candidate_names:
+            candidate = directory / name
+            if _match_weight_file(candidate):
+                print(f"✓ Found weights: {candidate}")
+                return candidate
+
+    # Recursive search as last resort
+    for directory in search_dirs:
+        try:
+            print(f"  Scanning {directory} for {PRETRAINED_MODEL}...")
+            for match in directory.rglob('*.pt'):
+                if _match_weight_file(match):
+                    print(f"✓ Found weights via scan: {match}")
+                    return match
+        except (OSError, PermissionError) as e:
+            print(f"  ⚠ Skipping {directory}: {e}")
+            continue
+
+    print("  ✗ No existing weights located in known directories")
+    return None
 
 def _download_pretrained_weights(destination: Path):
     """Download pretrained weights from GitHub releases."""
@@ -252,77 +364,38 @@ def ensure_pretrained_model():
     print("\n" + "="*60)
     print(f"Loading Pretrained Model: {PRETRAINED_MODEL}")
     print("="*60)
-    
+
     os.makedirs(WEIGHTS_DIR, exist_ok=True)
-    
-    # First, try to find existing weights in WEIGHTS_DIR
-    for candidate_name in _candidate_weight_names():
-        weight_path = Path(WEIGHTS_DIR) / candidate_name
-        
-        if weight_path.exists():
-            file_size = weight_path.stat().st_size
-            print(f"\n✓ Found existing weights: {weight_path}")
-            print(f"  Size: {file_size / 1024**2:.2f} MB")
-            
-            # Sanity check: file should be at least 1 MB
-            if file_size < MIN_WEIGHT_BYTES:
-                print(f"  ⚠ File too small (< 1MB), possibly corrupted")
-                _backup_corrupted_weights(weight_path)
-                continue
-            
-            # Try loading the model
-            try:
-                model = YOLO(str(weight_path))
-                print(f"✓ Model loaded successfully")
-                return model
-            except Exception as e:
-                print(f"  ⚠ Failed to load model: {e}")
-                _backup_corrupted_weights(weight_path)
-                continue
-    
-    print(f"\n⚠ No valid pretrained weights found in {WEIGHTS_DIR}")
-    
-    # Before downloading, check if weights exist in BASE_DIR (root directory)
-    print(f"\nChecking alternative locations...")
-    root_weight_path = Path(BASE_DIR) / PRETRAINED_MODEL
-    if root_weight_path.exists():
-        file_size = root_weight_path.stat().st_size
-        print(f"✓ Found weights in root directory: {root_weight_path}")
+
+    existing_path = _locate_existing_weight()
+
+    if existing_path:
+        file_size = existing_path.stat().st_size
         print(f"  Size: {file_size / 1024**2:.2f} MB")
-        
-        if file_size >= MIN_WEIGHT_BYTES:
+
+        if file_size < MIN_WEIGHT_BYTES:
+            print(f"  ⚠ File too small (<1MB), treating as corrupted: {existing_path}")
+        else:
             try:
-                model = YOLO(str(root_weight_path))
-                print(f"✓ Model loaded successfully from root directory")
-                
-                # Copy to WEIGHTS_DIR for future use
+                model = YOLO(str(existing_path))
+                print(f"✓ Model loaded successfully from {existing_path}")
+
+                # Ensure a copy exists in WEIGHTS_DIR for reproducibility
                 dest_path = Path(WEIGHTS_DIR) / PRETRAINED_MODEL
-                shutil.copy2(str(root_weight_path), str(dest_path))
-                print(f"✓ Copied weights to: {dest_path}")
+                if existing_path.resolve() != dest_path.resolve():
+                    try:
+                        os.makedirs(dest_path.parent, exist_ok=True)
+                        shutil.copy2(existing_path, dest_path)
+                        print(f"✓ Copied weights to: {dest_path}")
+                    except Exception as copy_err:
+                        print(f"  ⚠ Failed to copy weights to {dest_path}: {copy_err}")
+
                 return model
             except Exception as e:
-                print(f"  ⚠ Failed to load model from root: {e}")
-    
-    # Check current working directory
-    cwd_weight_path = Path.cwd() / PRETRAINED_MODEL
-    if cwd_weight_path.exists() and cwd_weight_path != root_weight_path:
-        file_size = cwd_weight_path.stat().st_size
-        print(f"✓ Found weights in current directory: {cwd_weight_path}")
-        print(f"  Size: {file_size / 1024**2:.2f} MB")
-        
-        if file_size >= MIN_WEIGHT_BYTES:
-            try:
-                model = YOLO(str(cwd_weight_path))
-                print(f"✓ Model loaded successfully from current directory")
-                
-                # Copy to WEIGHTS_DIR for future use
-                dest_path = Path(WEIGHTS_DIR) / PRETRAINED_MODEL
-                shutil.copy2(str(cwd_weight_path), str(dest_path))
-                print(f"✓ Copied weights to: {dest_path}")
-                return model
-            except Exception as e:
-                print(f"  ⚠ Failed to load model from current directory: {e}")
-    
+                print(f"  ⚠ Failed to load model from {existing_path}: {e}")
+
+    print(f"⚠ No usable pretrained weights found locally. Attempting download...")
+
     # No weights found anywhere, try to download
     try:
         return _download_pretrained_weights(Path(WEIGHTS_DIR) / PRETRAINED_MODEL)
@@ -330,13 +403,12 @@ def ensure_pretrained_model():
         error_msg = f"Failed to download weights: {e}"
         print(f"\n❌ {error_msg}")
         print(f"\n💡 Suggestions:")
-        print(f"  1. Check internet connectivity: ping github.com")
-        print(f"  2. Manually download {PRETRAINED_MODEL}")
-        print(f"     From: https://github.com/ultralytics/assets/releases/")
-        print(f"  3. Upload the file to Colab and place in: {BASE_DIR}")
-        print(f"     Current BASE_DIR: {BASE_DIR}")
-        print(f"  4. Or place in weights directory: {WEIGHTS_DIR}")
-        print(f"  5. Verify file was uploaded correctly: ls -lh {BASE_DIR}/{PRETRAINED_MODEL}")
+        print(f"  1. Verify the file exists: ls -lh {BASE_DIR}/{PRETRAINED_MODEL}")
+        print(f"  2. Upload or move the file, then set YOLO_PRETRAINED_PATH=/full/path/to/{PRETRAINED_MODEL}")
+        print(f"  3. Provide additional search directories via YOLO_WEIGHTS_DIRS")
+        print("  4. Manual download example:")
+        print(f"     !wget https://github.com/ultralytics/assets/releases/download/v8.3.0/{PRETRAINED_MODEL} \\")
+        print(f"          -O {Path(WEIGHTS_DIR) / PRETRAINED_MODEL}")
         raise RuntimeError(error_msg)
 
 def train_model(device):
