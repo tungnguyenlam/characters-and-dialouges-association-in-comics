@@ -40,6 +40,7 @@ from pathlib import Path
 from datetime import datetime
 from ultralytics import YOLO
 import shutil
+import yaml
 
 # ===================================================================
 # Configuration

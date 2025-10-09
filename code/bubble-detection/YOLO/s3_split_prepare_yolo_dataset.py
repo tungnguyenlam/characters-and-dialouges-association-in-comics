@@ -31,6 +31,7 @@ from tqdm import tqdm
 from datetime import datetime
 from sklearn.model_selection import train_test_split
 from multiprocessing import Pool, cpu_count
+import shutil
 
 # ===================================================================
 # Configuration
@@ -138,10 +139,10 @@ def check_prerequisites():
 def check_partial_work():
     """
     Check if there's partial work in the dataset directory.
-    If found and no valid checkpoint exists, clean it up.
+    Returns True only if valid complete work is found.
     """
     print("\n" + "="*60)
-    print("Checking for Partial Work")
+    print("Checking for Existing Work")
     print("="*60)
     
     # Check if directories exist
@@ -152,41 +153,41 @@ def check_partial_work():
     
     dirs_exist = any(os.path.exists(d) and os.listdir(d) for d in [train_img_dir, train_lbl_dir, val_img_dir, val_lbl_dir])
     
-    if dirs_exist:
-        # Check if we have a valid checkpoint
-        checkpoint = load_checkpoint("s3")
+    if not dirs_exist:
+        print("✓ No existing work found - will create new dataset\n")
+        return False
+    
+    # Directories exist - check if we have a valid checkpoint
+    checkpoint = load_checkpoint("s3")
+    
+    if checkpoint:
+        # Validate the checkpoint matches current state
+        expected_train = checkpoint['outputs'].get('train_images', 0)
+        expected_val = checkpoint['outputs'].get('val_images', 0)
         
-        if checkpoint:
-            # Validate the checkpoint matches current state
-            expected_train = checkpoint['outputs'].get('train_images', 0)
-            expected_val = checkpoint['outputs'].get('val_images', 0)
-            
-            actual_train = len(os.listdir(train_img_dir)) if os.path.exists(train_img_dir) else 0
-            actual_val = len(os.listdir(val_img_dir)) if os.path.exists(val_img_dir) else 0
-            
-            if actual_train == expected_train and actual_val == expected_val:
-                print("✓ Found valid checkpoint with matching data")
-                print(f"  Training images: {actual_train}")
-                print(f"  Validation images: {actual_val}")
-                return True
-            else:
-                print("⚠ Checkpoint exists but data doesn't match")
-                print(f"  Expected - Train: {expected_train}, Val: {expected_val}")
-                print(f"  Found    - Train: {actual_train}, Val: {actual_val}")
+        actual_train = len(os.listdir(train_img_dir)) if os.path.exists(train_img_dir) else 0
+        actual_val = len(os.listdir(val_img_dir)) if os.path.exists(val_img_dir) else 0
+        
+        if actual_train == expected_train and actual_val == expected_val:
+            print("✓ Found valid completed work with matching data")
+            print(f"  Training images: {actual_train}")
+            print(f"  Validation images: {actual_val}")
+            return True
         else:
-            print("⚠ Found partial work without valid checkpoint")
-        
-        # Clean up partial work
-        print("\n🧹 Cleaning up incomplete work...")
-        for directory in [train_img_dir, train_lbl_dir, val_img_dir, val_lbl_dir]:
-            if os.path.exists(directory):
-                shutil.rmtree(directory)
-                print(f"  Deleted: {directory}")
-        print("✓ Cleanup complete\n")
-        return False
+            print("⚠ Found work but checkpoint doesn't match")
+            print(f"  Expected - Train: {expected_train}, Val: {expected_val}")
+            print(f"  Found    - Train: {actual_train}, Val: {actual_val}")
     else:
-        print("✓ No partial work found\n")
-        return False
+        print("⚠ Found work but no valid checkpoint")
+    
+    # Clean up incomplete/invalid work
+    print("\n🧹 Cleaning up incomplete work...")
+    for directory in [train_img_dir, train_lbl_dir, val_img_dir, val_lbl_dir]:
+        if os.path.exists(directory):
+            shutil.rmtree(directory)
+            print(f"  Deleted: {directory}")
+    print("✓ Cleanup complete - will create fresh dataset\n")
+    return False
 
 # ===================================================================
 # Multiprocessing Functions
@@ -388,8 +389,11 @@ def main():
     print("# Pipeline Step 3: Split and Prepare YOLO Dataset")
     print("#"*60)
     
-    # Check if work is already done
-    if check_partial_work():
+    # Check if valid work exists
+    work_is_complete = check_partial_work()
+    
+    if work_is_complete:
+        # Valid completed work found - skip execution
         print("\n✓ Step 3 already completed!")
         checkpoint = load_checkpoint("s3")
         print(f"  Timestamp: {checkpoint['timestamp']}")
@@ -397,6 +401,11 @@ def main():
         print(f"  Validation images: {checkpoint['outputs']['val_images']}")
         print("\nSkipping to next step...")
         return
+    
+    # No valid work found or partial work cleaned - proceed with execution
+    print("\n" + "="*60)
+    print("Starting Fresh Dataset Creation")
+    print("="*60)
     
     # Check prerequisites (now returns empty list instead of raising error)
     data_records = check_prerequisites()
