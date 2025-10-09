@@ -16,6 +16,7 @@ Outputs:
 import os
 import json
 import hashlib
+import gc
 from collections import defaultdict
 from pathlib import Path
 from tqdm import tqdm
@@ -141,77 +142,116 @@ def validate_directories():
     print(f"✓ Found {len(json_files)} JSON files to process")
     print("\n✓ Directory validation complete\n")
 
-def prepare_manga_balloon_data(json_dir, image_root):
+def process_single_json_file(json_path, image_root):
     """
-    Load pre-processed JSON files, filter for target category,
-    and return a list of image records.
+    Process a single JSON file and return records for images with balloon annotations.
+    This function processes one file at a time to minimize memory usage.
+    """
+    try:
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+        
+        # Build lookup tables for this file only
+        images = {img['id']: img for img in data.get('images', [])}
+        annotations = defaultdict(list)
+        
+        for ann in data.get('annotations', []):
+            annotations[ann['image_id']].append(ann)
+        
+        # Process records
+        records = []
+        file_balloon_count = 0
+        
+        for img_id, img_info in images.items():
+            # Filter for balloon annotations
+            balloon_annotations = []
+            
+            for ann in annotations.get(img_id, []):
+                if ann.get('category_id') == TARGET_CATEGORY_ID:
+                    # Ensure segmentation data is present and not empty
+                    if ann.get('segmentation'):
+                        balloon_annotations.append({
+                            "segmentation": ann['segmentation'],
+                            "category_id": 0,  # All balloons will be class 0
+                        })
+                        file_balloon_count += 1
+            
+            # Only add images that contain at least one balloon
+            if balloon_annotations:
+                record = {
+                    "file_name": os.path.join(image_root, img_info['file_name']),
+                    "image_id": img_id,
+                    "height": img_info['height'],
+                    "width": img_info['width'],
+                    "annotations": balloon_annotations
+                }
+                records.append(record)
+        
+        return records, file_balloon_count
+        
+    except Exception as e:
+        print(f"\n⚠ Error processing {os.path.basename(json_path)}: {e}")
+        return [], 0
+
+def prepare_manga_balloon_data_streaming(json_dir, image_root):
+    """
+    Load pre-processed JSON files one at a time, filter for target category,
+    and write records incrementally to save memory.
     """
     print("\n" + "="*60)
-    print("STEP 2: Preparing Data from Processed JSONs")
+    print("STEP 2: Preparing Data from Processed JSONs (Streaming Mode)")
     print("="*60)
     
-    all_images = {}
-    all_annotations = defaultdict(list)
-
-    print("\nLoading and parsing JSON files...")
     json_files = [f for f in os.listdir(json_dir) if f.endswith('.json')]
     
-    for json_file in tqdm(json_files, desc="Processing JSONs"):
-        json_path = os.path.join(json_dir, json_file)
-        try:
-            with open(json_path, 'r') as f:
-                data = json.load(f)
-                for img_info in data.get('images', []):
-                    all_images[img_info['id']] = img_info
-                for ann_info in data.get('annotations', []):
-                    all_annotations[ann_info['image_id']].append(ann_info)
-        except Exception as e:
-            print(f"⚠ Error processing {json_file}: {e}")
-            continue
-
-    print(f"\n✓ Loaded data for {len(all_images)} total images")
-
-    dataset_records = []
-    images_with_balloons = 0
-    total_balloon_annotations = 0
+    if not json_files:
+        raise ValueError(f"No JSON files found in {json_dir}")
     
-    for img_id, img_info in tqdm(all_images.items(), desc="Filtering balloon annotations"):
-        # Create a base record for the image
-        record = {
-            "file_name": os.path.join(image_root, img_info['file_name']),
-            "image_id": img_id,
-            "height": img_info['height'],
-            "width": img_info['width'],
-        }
+    print(f"\nProcessing {len(json_files)} JSON files (one at a time to save memory)...")
+    
+    total_images = 0
+    total_annotations = 0
+    
+    # Open output file for incremental writing
+    with open(DATA_RECORDS_FILE, 'w') as out_file:
+        out_file.write('[\n')
         
-        # Filter for balloon annotations
-        balloon_annotations = []
-        for ann in all_annotations.get(img_id, []):
-            if ann.get('category_id') == TARGET_CATEGORY_ID:
-                # Ensure segmentation data is present and not empty
-                if ann.get('segmentation'):
-                    balloon_annotations.append({
-                        "segmentation": ann['segmentation'],
-                        "category_id": 0,  # All balloons will be class 0
-                    })
-                    total_balloon_annotations += 1
+        first_record = True
         
-        # Only add images that contain at least one balloon
-        if balloon_annotations:
-            record["annotations"] = balloon_annotations
-            dataset_records.append(record)
-            images_with_balloons += 1
+        for json_file in tqdm(json_files, desc="Processing JSONs", unit="file"):
+            json_path = os.path.join(json_dir, json_file)
+            
+            # Process this single file (returns records immediately)
+            records, balloon_count = process_single_json_file(json_path, image_root)
+            
+            # Write records to file immediately
+            for record in records:
+                if not first_record:
+                    out_file.write(',\n')
+                
+                json.dump(record, out_file, indent=2)
+                first_record = False
+                
+                total_images += 1
+            
+            total_annotations += balloon_count
+            
+            # Release memory from this iteration
+            del records
+            gc.collect()
+        
+        out_file.write('\n]')
     
     print(f"\n✓ Data preparation complete:")
-    print(f"  - Total images with '{TARGET_CATEGORY_NAME}': {images_with_balloons}")
-    print(f"  - Total '{TARGET_CATEGORY_NAME}' annotations: {total_balloon_annotations}")
+    print(f"  - Total images with '{TARGET_CATEGORY_NAME}': {total_images}")
+    print(f"  - Total '{TARGET_CATEGORY_NAME}' annotations: {total_annotations}")
     
-    if images_with_balloons == 0:
+    if total_images == 0:
         raise ValueError(f"No images found containing '{TARGET_CATEGORY_NAME}' annotations!")
     
-    return dataset_records, {
-        "total_images": images_with_balloons,
-        "total_annotations": total_balloon_annotations
+    return {
+        "total_images": total_images,
+        "total_annotations": total_annotations
     }
 
 def main():
@@ -236,16 +276,13 @@ def main():
     # Step 1: Validate directories
     validate_directories()
     
-    # Step 2: Prepare data
-    dataset_records, stats = prepare_manga_balloon_data(JSON_DIR, IMAGE_ROOT_DIR)
+    # Step 2: Prepare data (STREAMING MODE - processes one JSON at a time)
+    stats = prepare_manga_balloon_data_streaming(JSON_DIR, IMAGE_ROOT_DIR)
     
-    # Save data records
-    print("\nSaving data records...")
-    with open(DATA_RECORDS_FILE, 'w') as f:
-        json.dump(dataset_records, f, indent=2)
-    print(f"✓ Data records saved to: {DATA_RECORDS_FILE}")
+    print(f"\n✓ Data records saved to: {DATA_RECORDS_FILE}")
     
     # Calculate checksum
+    print("\nCalculating checksum...")
     data_checksum = calculate_file_hash(DATA_RECORDS_FILE)
     
     # Save checkpoint
