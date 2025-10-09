@@ -255,6 +255,34 @@ def _match_weight_file(path: Path) -> bool:
     return base in filename and filename.endswith('.pt')
 
 
+def _google_drive_dirs() -> List[Path]:
+    """Return list of common Google Drive mount points in Colab if available."""
+    drive_dirs: List[Path] = []
+    base = Path('/content/drive')
+    if not base.exists():
+        return drive_dirs
+
+    defaults = [
+        base / 'MyDrive',
+        base / 'My Drive',
+        base / 'Shareddrives',
+    ]
+
+    for candidate in defaults:
+        if candidate.exists():
+            drive_dirs.append(candidate)
+
+            # Also include immediate subdirectories (common project folders)
+            try:
+                for child in candidate.iterdir():
+                    if child.is_dir():
+                        drive_dirs.append(child)
+            except (OSError, PermissionError):
+                continue
+
+    return drive_dirs
+
+
 def _locate_existing_weight() -> Optional[Path]:
     """Attempt to locate an existing pretrained weight file."""
     print("\n🔍 Searching for existing pretrained weights...")
@@ -287,7 +315,13 @@ def _locate_existing_weight() -> Optional[Path]:
     search_dirs = _unique_existing_dirs([
         *(path for path in common_dirs if path),
         *additional_dirs,
+        *_google_drive_dirs(),
     ])
+
+    if search_dirs:
+        print("  Directories to check:")
+        for directory in search_dirs:
+            print(f"    - {directory}")
 
     # Direct check for each candidate filename in directories
     candidate_names = _candidate_weight_names()
