@@ -14,10 +14,10 @@ Prerequisites:
 - data_records.json must exist
 
 Outputs:
-- YOLOv8_data/images/train/ : Training images
-- YOLOv8_data/images/val/   : Validation images
-- YOLOv8_data/labels/train/ : Training labels
-- YOLOv8_data/labels/val/   : Validation labels
+- YOLO_data/images/train/ : Training images
+- YOLO_data/images/val/   : Validation images
+- YOLO_data/labels/train/ : Training labels
+- YOLO_data/labels/val/   : Validation labels
 - .pipeline_state/s3_complete.json: Checkpoint file
 """
 
@@ -30,6 +30,7 @@ from pathlib import Path
 from tqdm import tqdm
 from datetime import datetime
 from sklearn.model_selection import train_test_split
+from multiprocessing import Pool, cpu_count
 
 # ===================================================================
 # Configuration
@@ -181,6 +182,62 @@ def check_partial_work():
         return False
 
 # ===================================================================
+# Multiprocessing Functions
+# ===================================================================
+
+def process_single_record(args):
+    """Process a single record (for multiprocessing)."""
+    record, split_type, dataset_dir = args
+    
+    try:
+        original_img_path = record['file_name']
+        img_height = record['height']
+        img_width = record['width']
+        
+        # Check if image exists
+        if not os.path.exists(original_img_path):
+            return False, f"Image not found: {original_img_path}", 0
+        
+        # Create unique identifier to avoid filename collisions
+        manga_title = Path(original_img_path).parts[-2]
+        img_stem = Path(original_img_path).stem
+        img_identifier = f"{manga_title}_{img_stem}"
+        
+        # 1. Copy image to train/val directory
+        dest_img_path = os.path.join(dataset_dir, f'images/{split_type}', f"{img_identifier}.jpg")
+        shutil.copy2(original_img_path, dest_img_path)
+        
+        # 2. Create corresponding label .txt file
+        label_path = os.path.join(dataset_dir, f'labels/{split_type}', f"{img_identifier}.txt")
+        
+        # 3. Write normalized polygon coordinates
+        annotation_count = 0
+        with open(label_path, 'w') as f:
+            for ann in record.get('annotations', []):
+                segmentation = ann.get('segmentation')
+                if not segmentation:
+                    continue
+                
+                # Each object can have multiple polygons
+                for poly in segmentation:
+                    # Normalize polygon coordinates
+                    normalized_poly = []
+                    for i in range(0, len(poly), 2):
+                        x = poly[i] / img_width
+                        y = poly[i+1] / img_height
+                        normalized_poly.extend([x, y])
+                    
+                    # Write in format: class_id x1 y1 x2 y2 ...
+                    if normalized_poly:
+                        f.write(f"0 {' '.join(map(str, normalized_poly))}\n")
+                        annotation_count += 1
+        
+        return True, None, annotation_count
+        
+    except Exception as e:
+        return False, str(e), 0
+
+# ===================================================================
 # Main Processing Functions
 # ===================================================================
 
@@ -230,63 +287,41 @@ def split_data(data_records):
 def process_dataset_split_segmentation(data_split, split_type):
     """
     Process a dataset split and convert to YOLO instance segmentation format.
-    Writes normalized polygon coordinates to .txt files.
+    Uses multiprocessing for faster processing.
     """
     print(f"\n" + "="*60)
     print(f"STEP 3B: Converting {split_type.upper()} Split to YOLO Format")
     print("="*60)
     
+    # Prepare arguments for multiprocessing
+    tasks = [(record, split_type, DATASET_DIR) for record in data_split]
+    
+    # Use half the CPU cores to avoid overwhelming the system
+    num_workers = max(1, cpu_count() // 2)
+    
+    print(f"Processing with {num_workers} workers...")
+    
     total_annotations = 0
     skipped_images = 0
     
-    for record in tqdm(data_split, desc=f"Processing {split_type} images"):
-        original_img_path = record['file_name']
-        img_height = record['height']
-        img_width = record['width']
-        
-        # Check if image exists
-        if not os.path.exists(original_img_path):
-            print(f"⚠ Image not found: {original_img_path}")
+    with Pool(num_workers) as pool:
+        results = list(tqdm(
+            pool.imap(process_single_record, tasks),
+            total=len(tasks),
+            desc=f"Processing {split_type} images"
+        ))
+    
+    # Process results
+    for success, error, ann_count in results:
+        if success:
+            total_annotations += ann_count
+        else:
             skipped_images += 1
-            continue
-        
-        # Create unique identifier to avoid filename collisions
-        manga_title = Path(original_img_path).parts[-2]
-        img_stem = Path(original_img_path).stem
-        img_identifier = f"{manga_title}_{img_stem}"
-        
-        # 1. Copy image to train/val directory
-        dest_img_path = os.path.join(DATASET_DIR, f'images/{split_type}', f"{img_identifier}.jpg")
-        shutil.copy2(original_img_path, dest_img_path)
-        
-        # 2. Create corresponding label .txt file
-        label_path = os.path.join(DATASET_DIR, f'labels/{split_type}', f"{img_identifier}.txt")
-        
-        # 3. Write normalized polygon coordinates
-        with open(label_path, 'w') as f:
-            for ann in record.get('annotations', []):
-                segmentation = ann.get('segmentation')
-                if not segmentation:
-                    continue
-                
-                # Each object can have multiple polygons
-                for poly in segmentation:
-                    # Normalize polygon coordinates
-                    # poly is a list of numbers [x1, y1, x2, y2, ...]
-                    normalized_poly = []
-                    for i in range(0, len(poly), 2):
-                        x = poly[i] / img_width
-                        y = poly[i+1] / img_height
-                        normalized_poly.extend([x, y])
-                    
-                    # Write in format: class_id x1 y1 x2 y2 ...
-                    # Class ID is always 0 (single class: balloon)
-                    if normalized_poly:
-                        f.write(f"0 {' '.join(map(str, normalized_poly))}\n")
-                        total_annotations += 1
+            if error:
+                print(f"⚠ {error}")
     
     if skipped_images > 0:
-        print(f"⚠ Skipped {skipped_images} images (not found)")
+        print(f"⚠ Skipped {skipped_images} images (not found or errors)")
     
     return len(data_split) - skipped_images, total_annotations
 

@@ -58,19 +58,19 @@ if not (BASE_DIR.endswith('/content') or BASE_DIR.endswith(END_WITH_LOCAL)):
 # Paths
 DATASET_DIR = os.path.join(BASE_DIR, 'data', 'YOLO_data')
 YAML_PATH = os.path.join(DATASET_DIR, 'dataset.yaml')
-PRETRAINED_MODEL = 'yolov11n-seg.pt'  # Change this to any YOLO model: yolo11n-seg.pt, yolov9-seg.pt, etc.
+PRETRAINED_MODEL = 'yolov8n-seg.pt'  # Change this to any YOLO model: yolo11n-seg.pt, yolov9-seg.pt, etc.
 
 # Extract model base name for folder structure (removes -seg and .pt)
 MODEL_BASE_NAME = re.sub(r'-seg\.pt$', '', PRETRAINED_MODEL)  # yolov8s-seg.pt -> yolov8s
 MODEL_FAMILY = re.match(r'(yolo(?:v)?[\d]+)', MODEL_BASE_NAME, re.IGNORECASE)  # Extract yolov8, yolo11, etc.
 MODEL_FAMILY_NAME = MODEL_FAMILY.group(1).upper() if MODEL_FAMILY else 'YOLO'  # YOLOv8, YOLO11, etc.
 
-CHECKPOINT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection', MODEL_FAMILY_NAME, '.pipeline_state')
+CHECKPOINT_DIR = os.path.join(BASE_DIR, 'code', 'bubble-detection','YOLO', '.pipeline_state')
 WEIGHTS_DIR = os.path.join(BASE_DIR, 'models', 'bubble-detection', MODEL_FAMILY_NAME, 'weights')
 
 # Training parameters
 EPOCHS = 1
-IMAGE_SIZE = 1280
+IMAGE_SIZE = 640
 BATCH_SIZE = 1
 PROJECT_NAME = os.path.join(BASE_DIR, 'models', 'bubble-detection', MODEL_BASE_NAME)
 
@@ -226,12 +226,13 @@ def train_model(device):
     
     # Load pretrained model
     print(f"\nLoading pretrained model: {model_path}")
+    os.chdir(WEIGHTS_DIR)
     try:
-        model = YOLO(model_path)
+        model = YOLO(PRETRAINED_MODEL)
         print("✓ Model loaded successfully")
     except Exception as e:
         raise RuntimeError(f"❌ Failed to load model: {e}")
-    
+    os.chdir(BASE_DIR)
     # Start training
     # ...existing code...
     
@@ -253,7 +254,7 @@ def train_model(device):
             name=RUN_NAME,
             exist_ok=True,
             verbose=True,
-            workers=1
+            workers=2
         )
         
         print("\n" + "="*60)
