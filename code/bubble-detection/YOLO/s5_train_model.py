@@ -200,11 +200,40 @@ def _candidate_weight_names():
 
 def _download_pretrained_weights(destination: Path):
     """Download pretrained weights using YOLO's built-in downloader."""
-    print(f"\n📥 Downloading pretrained weights...")
+    print(f"\n📥 Attempting to download/locate pretrained weights...")
+    
+    # Check if weights exist in BASE_DIR (root directory)
+    root_weight_path = Path(BASE_DIR) / PRETRAINED_MODEL
+    if root_weight_path.exists():
+        file_size = root_weight_path.stat().st_size
+        print(f"✓ Found weights in root directory: {root_weight_path}")
+        print(f"  Size: {file_size / 1024**2:.2f} MB")
+        
+        if file_size >= MIN_WEIGHT_BYTES:
+            try:
+                model = YOLO(str(root_weight_path))
+                print(f"✓ Model loaded successfully from root directory")
+                
+                # Copy to destination for future use
+                os.makedirs(destination.parent, exist_ok=True)
+                shutil.copy2(str(root_weight_path), str(destination))
+                print(f"✓ Copied weights to: {destination}")
+                return model
+            except Exception as e:
+                print(f"  ⚠ Failed to load model from root: {e}")
+    
+    # Try to let YOLO download it automatically
     try:
-        # YOLO will automatically download if not found
+        print(f"  Attempting automatic download...")
         model = YOLO(PRETRAINED_MODEL)
         print(f"✓ Weights downloaded successfully")
+        
+        # Try to move downloaded weights to proper location
+        if os.path.exists(PRETRAINED_MODEL):
+            os.makedirs(destination.parent, exist_ok=True)
+            shutil.move(PRETRAINED_MODEL, str(destination))
+            print(f"✓ Moved weights to: {destination}")
+        
         return model
     except Exception as e:
         raise RuntimeError(f"Failed to download weights: {e}")
