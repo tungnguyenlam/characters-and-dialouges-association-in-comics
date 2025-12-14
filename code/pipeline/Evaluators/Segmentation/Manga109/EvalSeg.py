@@ -336,7 +336,6 @@ class EvalSeg:
 
 
 def print_results(results: Dict):
-
     bbox = results['bbox']
     print("\n BBOX METRICS:")
     print(f"  Mean IoU:        {bbox.get('mean_iou', 0.0):.4f}")
