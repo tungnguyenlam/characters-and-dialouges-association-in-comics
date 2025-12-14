@@ -56,6 +56,7 @@ class ClassEvaluator():
         plt.axis('off')
         plt.show()
 
+
     def evaluate(self):
         from EvalSeg import EvalSeg
         
