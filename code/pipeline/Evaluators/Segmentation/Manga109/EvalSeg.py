@@ -12,8 +12,27 @@ from typing import List, Dict, Union, Optional
 from scipy.optimize import linear_sum_assignment
 
 def yolo_style_ap(recalls, precisions):
+    # đảm bảo numpy array
+    recalls = np.array(recalls)
+    precisions = np.array(precisions)
+
+    # thêm điểm biên
+    recalls = np.concatenate(([0.0], recalls, [1.0]))
+    precisions = np.concatenate(([0.0], precisions, [0.0]))
+
+    # precision envelope (monotonic decreasing)
     precisions = np.maximum.accumulate(precisions[::-1])[::-1]
-    return np.trapz(precisions, recalls)
+
+    # recall chuẩn COCO: 101 điểm
+    recall_levels = np.linspace(0, 1, 101)
+
+    # interpolated precision
+    ap = 0.0
+    for r in recall_levels:
+        ap += np.max(precisions[recalls >= r])
+
+    return ap / 101
+
 
     
 
@@ -211,7 +230,7 @@ class EvalSeg:
         if iou_thresholds is None:
             iou_thresholds = np.linspace(0.5, 0.95, 10)
     
-        # ---- 1. Flatten GT + Pred ----
+        # flatten values
         all_gt = []
         all_pred = []
     
@@ -317,7 +336,7 @@ class EvalSeg:
 
 
 def print_results(results: Dict):
-    # --- BBOX METRICS ---
+
     bbox = results['bbox']
     print("\n BBOX METRICS:")
     print(f"  Mean IoU:        {bbox.get('mean_iou', 0.0):.4f}")
@@ -327,7 +346,6 @@ def print_results(results: Dict):
     print(f"  Recall:          {bbox.get('recall', 0.0):.4f}")
     print(f"  F1 Score:        {bbox.get('f1', 0.0):.4f}")
     
-    # --- MASK METRICS ---
     mask = results['mask']
     print("\n MASK METRICS:")
     print(f"  Mean IoU:        {mask.get('mean_iou', 0.0):.4f}")

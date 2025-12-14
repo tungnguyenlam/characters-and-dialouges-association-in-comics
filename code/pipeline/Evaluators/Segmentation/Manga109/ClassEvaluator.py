@@ -25,12 +25,12 @@ class ClassEvaluator():
             boxes: list of [x1, y1, x2, y2]
             alpha: float, độ trong suốt của mask overlay
         """
-        # --- Chuyển ảnh sang HWC và scale 0-1 nếu cần ---
+        # convert image to HWC & scale 0-1
         img = img_tensor.permute(1,2,0).cpu().numpy()
         if img.max() > 1.0:
             img = img / 255.0
     
-        # --- Tạo ảnh overlay từ tất cả mask ---
+        # create overlay 
         overlay = np.zeros_like(img)
     
         for mask in masks:
@@ -38,15 +38,15 @@ class ClassEvaluator():
             # Broadcast mask lên 3 kênh
             overlay += np.where(mask[..., None], color, 0)
     
-        # --- Clip overlay để không bị >1 ---
+        # Clip overlay
         overlay = np.clip(overlay, 0, 1)
     
-        # --- Hiển thị ảnh gốc + overlay ---
+        # visualize org image
         plt.figure(figsize=(6,6))
         plt.imshow(img)
         plt.imshow(overlay, alpha=alpha)  # overlay tất cả mask
            
-        # --- Vẽ bbox ---
+        # draw bboxes
         for box in boxes:
             x1, y1, x2, y2 = box
             rect = plt.Rectangle((x1, y1), x2-x1, y2-y1, 
@@ -55,51 +55,6 @@ class ClassEvaluator():
     
         plt.axis('off')
         plt.show()
-
-        
-
-    def visualize_image(self, img_tensor, masks, boxes, alpha=0.5):
-        """
-        Visualize a single image with all predicted masks overlaid and bounding boxes.
-    
-        Args:
-            img_tensor: Tensor [C,H,W], giá trị 0-255 hoặc 0-1
-            masks: list of [H,W] bool masks
-            boxes: list of [x1, y1, x2, y2]
-            alpha: float, độ trong suốt của mask overlay
-        """
-        # --- Chuyển ảnh sang HWC và scale 0-1 nếu cần ---
-        img = img_tensor.permute(1,2,0).cpu().numpy()
-        if img.max() > 1.0:
-            img = img / 255.0
-    
-        # --- Tạo ảnh overlay từ tất cả mask ---
-        overlay = np.zeros_like(img)
-    
-        for mask in masks:
-            color = np.random.rand(3)  # màu random
-            # Broadcast mask lên 3 kênh
-            overlay += np.where(mask[..., None], color, 0)
-    
-        # --- Clip overlay để không bị >1 ---
-        overlay = np.clip(overlay, 0, 1)
-    
-        # --- Hiển thị ảnh gốc + overlay ---
-        plt.figure(figsize=(6,6))
-        plt.imshow(img)
-        plt.imshow(overlay, alpha=alpha)  # overlay tất cả mask
-           
-        # --- Vẽ bbox ---
-        for box in boxes:
-            x1, y1, x2, y2 = box
-            rect = plt.Rectangle((x1, y1), x2-x1, y2-y1, 
-                                 fill=False, color='red', linewidth=2)
-            plt.gca().add_patch(rect)
-    
-        plt.axis('off')
-        plt.show()
-
-        
 
     def evaluate(self):
         from EvalSeg import EvalSeg
@@ -164,10 +119,10 @@ class ClassEvaluator():
         
 
         eval_seg = EvalSeg(
-            gt_masks=all_gt_masks,      # 93 items, mỗi item là tensor [H, W]
-            gt_bboxes=all_gt_boxes,     # 93 items, mỗi item là [[x1,y1,x2,y2], [x1,y1,x2,y2], ...]
-            pred_masks=pred_masks,      # 93 items, mỗi item là tensor [H, W]
-            pred_bboxes=pred_boxes,     # 93 items, mỗi item là [[x1,y1,x2,y2], [x1,y1,x2,y2], ...]
+            gt_masks=all_gt_masks,      # 93 items, each item= tensor [H, W]
+            gt_bboxes=all_gt_boxes,     # 93 items, each item = [[x1,y1,x2,y2], [x1,y1,x2,y2], ...]
+            pred_masks=pred_masks,      # 93 items, each item = tensor [H, W]
+            pred_bboxes=pred_boxes,     # 93 items, each item=  [[x1,y1,x2,y2], [x1,y1,x2,y2], ...]
             pred_probs= pred_probs
         )
 
