@@ -158,10 +158,8 @@ class MangaOCREvaluator:
             ["Number of Text Samples", f"{len(filtered_predicted)}"]
         ]
         
-        print("\n" + '='*60)
         print(f"OCR EVALUATION METRICS ({bbox_type.upper()} BBOX)")
         print(tabulate(metrics_data, headers=["Metric", "Value"], tablefmt="heavy_outline"))
-        print('='*60)
         
         return {
             "cer": cer.item(),
@@ -211,15 +209,11 @@ class MangaOCREvaluator:
         )
         
         # Evaluate with text bbox
-        print("\n" + "="*60)
         print("EVALUATING WITH TEXT BBOX")
-        print("="*60)
         text_metrics = self.evaluate(ocr_model, text_dataset, batch_size, verbose, bbox_type="text")
         
         # Evaluate with bubble bbox
-        print("\n" + "="*60)
         print("EVALUATING WITH BUBBLE BBOX")
-        print("="*60)
         bubble_metrics = self.evaluate(ocr_model, bubble_dataset, batch_size, verbose, bbox_type="bubble")
         
         # Compare results
@@ -232,10 +226,8 @@ class MangaOCREvaluator:
             ["Samples", str(text_metrics['num_samples']), str(bubble_metrics['num_samples']), ""]
         ]
         
-        print("\n" + "="*60)
         print("COMPARISON RESULTS")
         print(tabulate(comparison_data[1:], headers=comparison_data[0], tablefmt="heavy_outline"))
-        print("="*60)
         
         return {
             "text_bbox": text_metrics,

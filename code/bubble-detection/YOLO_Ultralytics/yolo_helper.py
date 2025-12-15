@@ -1,3 +1,15 @@
+def print_metric_group(title, metric_dict):
+    print(f"\n{title}")
+    if not metric_dict:
+        print("     (No metrics found for this group)")
+        return
+    # Sort keys for consistent ordering
+    for key in sorted(metric_dict.keys()):
+        value = metric_dict[key]
+        # Use a fixed width for the key for nice alignment
+        print(f"     - {key:<15}: {value:.4f}")
+
+
 def load_gt_polygons(label_path, img_height, img_width):
     """Loads ground-truth polygons from a YOLO .txt file."""
     polygons = []

@@ -15,7 +15,7 @@ def plot_patch(ax, x, y, width, height):
 
 
 def plot_image(ax, image, boxes, plot_bbox=True, alpha=0.4):
-    # --- convert image to numpy ---
+    # convert image to numpy
     if isinstance(image, torch.Tensor):
         img = image.permute(1, 2, 0).cpu().numpy()
     else:
@@ -26,7 +26,7 @@ def plot_image(ax, image, boxes, plot_bbox=True, alpha=0.4):
         
     ax.imshow(img)
 
-    # --- plot bounding boxes ---
+    # plot bounding boxes
     if plot_bbox and boxes is not None and len(boxes) > 0:
         for box in boxes:  # box = [x1,y1,x2,y2]
             ax = plot_patch(ax, box[0], box[1], box[2] - box[0], box[3] - box[1])
@@ -86,7 +86,7 @@ class YoloSeg:
         for box in boxes: 
             list_bboxes.append(box.tolist())  
             
-        #masks= result.masks.data.cpu().numpy().astype(bool) 
+        # masks= result.masks.data.cpu().numpy().astype(bool) 
         masks_tensor= result.masks.data
         probs= result.boxes.conf.cpu()
         
