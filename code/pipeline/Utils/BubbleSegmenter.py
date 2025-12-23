@@ -13,13 +13,13 @@ class BubbleSegmenter:
         self.MIN_DIST_BETWEEN_DEFECTS = 20
         sys.setrecursionlimit(2000)
 
-    def detect_and_segment(self, image):
+    def detect_and_segment(self, image_path):
         """
         Main entry point: Detects raw masks and refines them via splitting.
         Returns a list of dictionaries with 'mask', 'bbox', 'contour'.
         """
         # 1. Run YOLO
-        results = self.yolo_model.predict(source=image, verbose=False)
+        results = self.yolo_model.predict(source=image_path, verbose=False)
         result = results[0]
         
         image_rgb = cv2.cvtColor(result.orig_img, cv2.COLOR_BGR2RGB)

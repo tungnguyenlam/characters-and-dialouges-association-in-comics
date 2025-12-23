@@ -19,10 +19,10 @@ class MangaPipeline:
         self.typesetter = MangaTypesetter()
         print("Pipeline Ready.")
 
-    def process(self, image):
+    def process(self, image_path):
         # 1. Detection & Segmentation
         # print(f"Processing: {image_path}")
-        image_rgb, bubbles = self.segmenter.detect_and_segment(image)
+        image_rgb, bubbles = self.segmenter.detect_and_segment(image_path)
         print(f"Found {len(bubbles)} bubbles.")
 
         # 2. OCR
