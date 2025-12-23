@@ -11,8 +11,8 @@ from pycocotools import mask as mask_utils
 
 
 def normalize_series_name(name):
-    name = name.replace("'", "")
-    return ''.join(c for c in name if c.isalnum() or c in ["_", "-"])
+    name = name.replace("'", "_")
+    return name
     
 def gather_json(series_list, mask_dir, keep_cat_id=5):
     combined_data = {
