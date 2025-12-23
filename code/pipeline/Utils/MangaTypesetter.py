@@ -90,26 +90,31 @@ class MangaTypesetter:
         
         mask_crop = mask[y:y+h, x:x+w]
         
-        font_size = min(h, w)
-        min_font_size = 10
+        # Start searching for best font
+        font_size = min(h, w) # Start big
+        min_font_size = 12    # Don't go too small or it's unreadable
         best_font = None
         best_lines = []
         best_y_start = 0
         
-        while font_size >= min_font_size:
-            font = ImageFont.truetype(self.font_path, font_size)
-            lines = self._smart_wrap_text(draw, text, font, w * 0.9)
+        # --- ATTEMPT 1: PIXEL PERFECT FIT ---
+        # We try to find a size where text stays strictly inside the white mask
+        search_font_size = font_size
+        while search_font_size >= min_font_size:
+            font = ImageFont.truetype(self.font_path, search_font_size)
+            # Try to wrap text into the width of the box (0.9 buffer)
+            lines = self._smart_wrap_text(draw, text, font, w * 0.95)
             
             text_h = sum([draw.textbbox((0, 0), line, font=font)[3] for line in lines])
-            text_w = max([draw.textbbox((0, 0), line, font=font)[2] for line in lines]) if lines else 0
             
-            if text_h > h or text_w > w:
-                font_size -= 2
+            # Quick check: is the block taller than the bubble?
+            if text_h > h:
+                search_font_size -= 2
                 continue
 
-            # Pixel Perfect Check
-            text_canvas = np.zeros((h, w), dtype=np.uint8)
-            pil_canvas = Image.fromarray(text_canvas)
+            # Advanced check: Does the text hit the black walls of the mask?
+            # Create a temp canvas for the text
+            pil_canvas = Image.new('L', (w, h), 0)
             canvas_draw = ImageDraw.Draw(pil_canvas)
             
             curr_y = (cy - y) - (text_h / 2)
@@ -118,22 +123,36 @@ class MangaTypesetter:
             for line in lines:
                 line_w = draw.textbbox((0, 0), line, font=font)[2]
                 line_h = draw.textbbox((0, 0), line, font=font)[3]
+                # Draw text as white on black
                 canvas_draw.text((rel_cx - line_w/2, curr_y), line, font=font, fill=255)
                 curr_y += line_h
             
+            # Check collision (Text pixels vs Mask Wall pixels)
             if not self._check_mask_collision(np.array(pil_canvas), mask_crop):
                 best_font = font
                 best_lines = lines
                 best_y_start = cy - (text_h / 2)
                 break
             
-            font_size -= 2
+            search_font_size -= 2
+
+        # --- ATTEMPT 2: FALLBACK (FORCE DRAW) ---
+        # If the text is too long/complex to fit perfectly.
+        # We draw it anyway at the minimum size so the user can at least see it.
+        if best_font is None:
+            print(f"Warning: Text could not fit perfectly in bubble. Forcing render. Text: {text[:20]}...")
+            best_font = ImageFont.truetype(self.font_path, min_font_size)
+            best_lines = self._smart_wrap_text(draw, text, best_font, w) # Use full width
+            
+            # Recalculate height
+            text_h = sum([draw.textbbox((0, 0), line, font=best_font)[3] for line in best_lines])
+            best_y_start = cy - (text_h / 2)
 
         # Draw to main image
-        if best_font:
-            current_y = best_y_start
-            for line in best_lines:
-                line_w = draw.textbbox((0, 0), line, font=best_font)[2]
-                line_h = draw.textbbox((0, 0), line, font=best_font)[3]
-                draw.text((cx - line_w/2, current_y), line, font=best_font, fill=self.text_color)
-                current_y += line_h
+        current_y = best_y_start
+        for line in best_lines:
+            line_w = draw.textbbox((0, 0), line, font=best_font)[2]
+            line_h = draw.textbbox((0, 0), line, font=best_font)[3]
+            # Draw with black text
+            draw.text((cx - line_w/2, current_y), line, font=best_font, fill=self.text_color)
+            current_y += line_h
