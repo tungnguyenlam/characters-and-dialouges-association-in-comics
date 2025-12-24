@@ -11,6 +11,7 @@ class BubbleSegmenter:
         self.MIN_DEFECT_DEPTH = 13
         self.MAX_ANGLE_DEG = 170
         self.MIN_DIST_BETWEEN_DEFECTS = 20
+        self.MAX_SPLIT_DEPTH = 2 # How many times we can cut
         sys.setrecursionlimit(2000)
 
     def detect_and_segment(self, image_path):
@@ -153,14 +154,17 @@ class BubbleSegmenter:
 
         return [bubble_mask]
 
-    def _split_connected_bubbles(self, bubble_mask):
+    def _split_connected_bubbles(self, bubble_mask, depth=0):
         """Recursive wrapper."""
+        if depth >= self.MAX_SPLIT_DEPTH:
+            return [bubble_mask]
+        
         initial_results = self._attempt_split_once(bubble_mask)
         if len(initial_results) == 1:
             return initial_results
         
         final_bubbles = []
         for sub_mask in initial_results:
-            sub_results = self._split_connected_bubbles(sub_mask)
+            sub_results = self._split_connected_bubbles(sub_mask, depth + 1)
             final_bubbles.extend(sub_results)
         return final_bubbles
