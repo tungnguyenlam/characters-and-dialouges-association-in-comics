@@ -1,50 +1,56 @@
 from manga_ocr import MangaOcr
 from PIL import Image
-import gc
 import numpy as np
-from typing import List
+from typing import List, Tuple, Any
 from math import floor, ceil
+from .BaseOCRModel import BaseOCRModel
 
 
-class MangaOCRModel:
+class MangaOCRModel(BaseOCRModel):
     """
-    Simple wrapper for MangaOCR model.
+    MangaOCR wrapper following BaseOCRModel pattern.
     Processes bounding boxes one by one (non-batch mode).
     """
-    def __init__(self):
-        self.mocr = None
+    
+    def __init__(
+        self,
+        device: str = 'auto',
+        verbose: bool = False
+    ):
+        # MangaOCR doesn't require a model_path (auto-downloads)
+        super().__init__(
+            model_path="",  # Not used, MangaOCR handles this internally
+            device=device,
+            verbose=verbose,
+            plot=False
+        )
 
-    def load_model(self):
+    def load_model(self) -> None:
         """Load MangaOCR model."""
-        if self.mocr is None:
-            self.mocr = MangaOcr()
-            print("MangaOCR model loaded")
-        else:
-            print("Model is already loaded")
+        self.model = MangaOcr()
+        self._log("Model loaded successfully")
 
-    def predict(self, bboxes: List[List[float]], image: np.ndarray) -> List[str]:
+    def _inference(
+        self, 
+        inputs: Tuple[np.ndarray, List[List[float]]], 
+        **kwargs
+    ) -> List[str]:
         """
-        Predict OCR text for each bounding box in the image.
+        Core inference logic for OCR.
         
         Args:
-            bboxes: List of bounding boxes [[x_min, y_min, x_max, y_max], ...]
-            image: numpy array of the full image (RGB format)
+            inputs: Tuple of (image, bboxes)
             
         Returns:
-            List of OCR text strings, one for each bounding box
+            List of OCR text strings
         """
-        if self.mocr is None:
-            raise ValueError("Model not loaded. Call load_model() first.")
-        
-        if not isinstance(image, np.ndarray):
-            raise TypeError("Image must be a numpy array")
+        image, bboxes = inputs
         
         if not bboxes or len(bboxes) == 0:
             return []
         
         text_ocr_list = []
         
-        # Process each bounding box
         for box in bboxes:
             x_min, y_min, x_max, y_max = box
             
@@ -63,20 +69,10 @@ class MangaOCRModel:
             # Convert to PIL and perform OCR
             try:
                 pil_image = Image.fromarray(cropped_image)
-                text = self.mocr(pil_image)
+                text = self.model(pil_image)
                 text_ocr_list.append(text)
             except Exception as e:
-                print(f"OCR error for box {box}: {e}")
+                self._log(f"OCR error for box {box}: {e}")
                 text_ocr_list.append("")
         
         return text_ocr_list
-        
-    def unload_model(self):
-        """Unload model and free memory."""
-        if self.mocr is None:
-            print("Model is not loaded yet")
-        else:
-            del self.mocr
-            self.mocr = None
-            gc.collect()
-            print("Model unloaded")

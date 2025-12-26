@@ -46,12 +46,20 @@ def format_input(source_texts: List[str], add_begin: str = "Japanese: ", add_end
 
 
 class LLMTranslator(Translator):
-    def __init__(self):
-        super().__init__()
-        self.model = None
+    def __init__(
+        self,
+        model_name: str = "Qwen/Qwen2.5-0.5B",
+        device: str = 'auto',
+        verbose: bool = False
+    ):
+        super().__init__(
+            model_path=model_name,
+            device=device,
+            verbose=verbose
+        )
         self.tokenizer = None
-        self.device = None
-
+        
+        # Config
         self.max_new_tokens: int = 100
         self.temperature: float = 1.0
         self.top_p: float = 1.0
@@ -61,38 +69,14 @@ class LLMTranslator(Translator):
         self.use_batch: bool = True
         self.skip_gating: bool = True
 
-    def load_model(self, model_name="Qwen/Qwen2.5-0.5B", device='auto'):
-        if self.model is not None:
-            print("Model is already loaded")
-            return
-
-        if device == 'auto':
-            if torch.cuda.is_available():
-                device = 'cuda'
-            elif torch.backends.mps.is_available():
-                device = 'mps'
-            else:
-                device = 'cpu'
-
-        self.device = device
-        self._clear_memory()
-
-        self.tokenizer = AutoTokenizer.from_pretrained(str(model_name))
+    def load_model(self) -> None:
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
         self.model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            device_map=device,
+            self.model_path,
+            device_map=self.device,
             trust_remote_code=True
         )
-
-        if self.model is None or self.tokenizer is None:
-            raise TypeError("Error: No model loaded")
-
-    def _clear_memory(self):
-        if self.device and 'cuda' in str(self.device):
-            torch.cuda.empty_cache()
-        elif self.device and 'mps' in str(self.device):
-            torch.mps.empty_cache()
-        gc.collect()
+        self._log("Model loaded successfully")
 
     def _generate(self, formatted_prompts: List[str]) -> List[str]:
         bad_words_ids = [
@@ -148,19 +132,14 @@ class LLMTranslator(Translator):
         formatted = format_input(texts)
         return self._generate(formatted)
 
-    def _translate(self, texts: List[str]) -> List[str]:
-        if self.model is None:
-            raise ValueError("Model not loaded. Call load_model() first.")
-
+    def _inference(self, texts: List[str], **kwargs) -> List[str]:
         if self.use_batch:
             return self._translate_batch(texts)
         else:
             return [self._translate_single(text) for text in texts]
 
-    def unload_model(self):
-        del self.model
-        del self.tokenizer
-        self.model = None
-        self.tokenizer = None
-        self._clear_memory()
-        print("Model unloaded")
+    def unload_model(self) -> None:
+        if self.tokenizer is not None:
+            del self.tokenizer
+            self.tokenizer = None
+        super().unload_model()

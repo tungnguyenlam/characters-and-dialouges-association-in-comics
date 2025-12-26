@@ -1,10 +1,24 @@
 import re
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import List, Union, Tuple
+from ..BaseModel import BaseModel
 
 
-class Translator(ABC):
-    def __init__(self):
+class Translator(BaseModel):
+    """Base translator with Japanese gating support."""
+    
+    def __init__(
+        self,
+        model_path: str = "",
+        device: str = 'auto',
+        verbose: bool = False
+    ):
+        super().__init__(
+            model_path=model_path,
+            device=device,
+            verbose=verbose,
+            plot=False
+        )
         self.skip_gating: bool = False
 
     def configure(self, **kwargs):
@@ -14,14 +28,6 @@ class Translator(ABC):
             else:
                 raise ValueError(f"Unknown configuration: {key}")
         return self
-
-    @abstractmethod
-    def load_model(self, **kwargs):
-        pass
-
-    @abstractmethod
-    def unload_model(self):
-        pass
 
     @staticmethod
     def contains_japanese(text: str) -> bool:
@@ -45,17 +51,21 @@ class Translator(ABC):
 
         return texts_to_translate, skip_indices, translate_indices
 
-    def preprocess(self, texts: List[str]) -> List[str]:
-        return texts
-
-    def postprocess(self, texts: List[str]) -> List[str]:
-        return texts
-
     @abstractmethod
-    def _translate(self, texts: List[str]) -> List[str]:
+    def _inference(self, texts: List[str], **kwargs) -> List[str]:
+        """Core translation logic. Replaces _translate()."""
         pass
 
-    def predict(self, source_texts: Union[str, List[str]]) -> Union[str, List[str]]:
+    def predict(
+        self, 
+        source_texts: Union[str, List[str]],
+        skip_preprocess: bool = False,
+        skip_postprocess: bool = False,
+        **kwargs
+    ) -> Union[str, List[str]]:
+        """Translate with gating for non-Japanese text."""
+        self._check_loaded()
+        
         single_input = isinstance(source_texts, str)
         if single_input:
             source_texts = [source_texts]
@@ -64,11 +74,15 @@ class Translator(ABC):
         results = list(source_texts)
 
         if texts_to_translate:
-            preprocessed = self.preprocess(texts_to_translate)
-            translated = self._translate(preprocessed)
-            postprocessed = self.postprocess(translated)
+            if not skip_preprocess:
+                texts_to_translate = self.preprocess(texts_to_translate)
+            
+            translated = self._inference(texts_to_translate, **kwargs)
+            
+            if not skip_postprocess:
+                translated = self.postprocess(translated)
 
-            for idx, text in zip(translate_indices, postprocessed):
+            for idx, text in zip(translate_indices, translated):
                 results[idx] = text
 
         return results[0] if single_input else results

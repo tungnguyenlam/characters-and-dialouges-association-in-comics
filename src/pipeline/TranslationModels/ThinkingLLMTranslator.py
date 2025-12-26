@@ -18,15 +18,16 @@ Examples:
 
 Output only the English translation, nothing else."""
 
-DEFAULT_MODEL = "Qwen/Qwen3-0.6B-Instruct"
-
-
 class ThinkingLLMTranslator(LLMTranslator):
-    def __init__(self):
-        super().__init__()
-        self.system_prompt: str = DEFAULT_THINKING_SYS_PROMPT
-        self.max_new_tokens: int = 100
-        self.default_model: str = DEFAULT_MODEL
+    def __init__(
+        self,
+        model_name: str = "Qwen/Qwen3-0.6B-Instruct",
+        device: str = 'auto',
+        verbose: bool = False
+    ):
+        super().__init__(model_name=model_name, device=device, verbose=verbose)
+        self.system_prompt = DEFAULT_THINKING_SYS_PROMPT
+        self.max_new_tokens = 100
 
     def _apply_chat_template(self, prompt: str) -> str:
         messages = [

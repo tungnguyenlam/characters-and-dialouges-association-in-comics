@@ -50,11 +50,16 @@ def format_input_batch(source_texts: List[str]) -> List[str]:
 
 
 class LLMPerImageTranslator(LLMTranslator):
-    def __init__(self):
-        super().__init__()
-        self.system_prompt: str = DEFAULT_SYS_PROMPT
-        self.bad_phrases: List[str] = DEFAULT_BAD_PHRASES
-        self.use_batch: bool = False
+    def __init__(
+        self,
+        model_name: str = "Qwen/Qwen2.5-0.5B",
+        device: str = 'auto',
+        verbose: bool = False
+    ):
+        super().__init__(model_name=model_name, device=device, verbose=verbose)
+        self.system_prompt = DEFAULT_SYS_PROMPT
+        self.bad_phrases = DEFAULT_BAD_PHRASES
+        self.use_batch = False
 
     def _translate_single(self, source_texts: List[str], target_index: int) -> str:
         formatted = format_input_with_context(source_texts, target_index)
@@ -67,7 +72,7 @@ class LLMPerImageTranslator(LLMTranslator):
         formatted = format_input_batch(source_texts)
         return self._generate(formatted)
 
-    def _translate(self, texts: List[str]) -> List[str]:
+    def _inference(self, texts: List[str]) -> List[str]:
         if self.model is None:
             raise ValueError("Model not loaded. Call load_model() first.")
 

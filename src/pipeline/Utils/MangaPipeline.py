@@ -1,57 +1,163 @@
 # code/pipeline/Utils/MangaPipeline.py
 import numpy as np
-from .BubbleSegmenter import BubbleSegmenter
+from typing import List, Tuple, Optional, Dict, Any
+from ..SegmentationModels.BaseSegmentationModel import BaseSegmentationModel
+from ..SegmentationModels.BubbleSegmenterWithSplit import BubbleSegmenterWithSplit
+from ..OCRModels.BaseOCRModel import BaseOCRModel
+from ..OCRModels.MangaOCRModel import MangaOCRModel
+from ..TranslationModels.Translator import Translator
+from ..TranslationModels.ElanMtJaEnBatchTranslator import ElanMtJaEnBatchTranslator
 from .MangaTypesetter import MangaTypesetter
-from pipeline.OCRModels.MangaOCRModel import MangaOCRModel
-from pipeline.TranslationModels.ElanMtJaEnTranslator import ElanMtJaEnTranslator
+
 
 class MangaPipeline:
-    def __init__(self, yolo_path):
-        print("Initializing Pipeline...")
-        self.segmenter = BubbleSegmenter(yolo_path)
-        
-        self.ocr_model = MangaOCRModel()
+    """
+    Modular manga translation pipeline.
+    
+    Flow: Image → Segment → OCR → Translate → Typeset → Output
+    
+    Components:
+        - segmenter: Detects speech bubbles (BaseSegmentationModel)
+        - ocr_model: Extracts Japanese text (BaseOCRModel)
+        - translator: Translates to English (Translator)
+        - typesetter: Renders translated text (MangaTypesetter)
+    """
+    
+    def __init__(
+        self,
+        segmenter: BaseSegmentationModel = BubbleSegmenterWithSplit(),
+        ocr_model: BaseOCRModel = MangaOCRModel(),
+        translator: Translator = ElanMtJaEnBatchTranslator(),
+        typesetter: Optional[MangaTypesetter] = None,
+        verbose: bool = False
+    ):
+        self.segmenter = segmenter
+        self.ocr_model = ocr_model
+        self.translator = translator
+        self.typesetter = typesetter or MangaTypesetter()
+        self.verbose = verbose
+        self._models_loaded = False
+
+    def _log(self, message: str):
+        if self.verbose:
+            print(f"[MangaPipeline] {message}")
+
+    def load_models(self) -> "MangaPipeline":
+        """Load all models into memory."""
+        self._log("Loading models...")
+        self.segmenter.load_model()
         self.ocr_model.load_model()
-        
-        self.translator = ElanMtJaEnTranslator()
         self.translator.load_model()
+        self._models_loaded = True
+        self._log("All models loaded")
+        return self
+
+    def unload_models(self) -> None:
+        """Unload all models to free memory."""
+        self._log("Unloading models...")
+        self.segmenter.unload_model()
+        self.ocr_model.unload_model()
+        self.translator.unload_model()
+        self._models_loaded = False
+        self._log("All models unloaded")
+
+    def __enter__(self) -> "MangaPipeline":
+        self.load_models()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.unload_models()
+
+    def process(
+        self, 
+        image: np.ndarray,
+        conf_threshold: float = 0.5,
+        return_intermediate: bool = False
+    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        """
+        Full pipeline: Segment → OCR → Translate → Typeset
         
-        self.typesetter = MangaTypesetter()
-        print("Pipeline Ready.")
-
-    def process(self, image_path):
-        # 1. Detection & Segmentation
-        # print(f"Processing: {image_path}")
-        image_rgb, bubbles = self.segmenter.detect_and_segment(image_path)
-        print(f"Found {len(bubbles)} bubbles.")
-
-        # 2. OCR
-        bboxes = []
-        for bubble in bubbles:
-            x, y, w, h = bubble['bbox']   # (x, y, w, h)
-            bboxes.append([x, y, x + w, y + h])
-
-        texts = self.ocr_model.predict(
-            bboxes=bboxes,
-            image=image_rgb
-        )
-
-        for bubble, text in zip(bubbles, texts):
-            bubble['ocr_text'] = text
+        Args:
+            image: RGB numpy array
+            conf_threshold: Confidence threshold for segmentation
+            return_intermediate: If True, include intermediate results in output
             
-            # Optional: Print progress
-            # print(f"Bubble {i} OCR: {text}")
-
-        # 3. Translation
-        for bubble in bubbles:
-            ocr = bubble.get('ocr_text', '')
-            if ocr.strip():
-                trans = self.translator.predict(ocr)
-                bubble['translated_text'] = trans
-            else:
-                bubble['translated_text'] = ""
-
-        # 4. Typesetting (Rendering)
-        final_image = self.typesetter.render(image_rgb, bubbles)
+        Returns:
+            (final_image, results_dict)
+        """
+        results = {}
         
-        return final_image, bubbles
+        # 1. Segmentation
+        self._log("Segmenting bubbles...")
+        bboxes, masks, confs = self.segmenter.predict(image, conf_threshold=conf_threshold)
+        self._log(f"Found {len(bboxes)} bubbles")
+        
+        if len(bboxes) == 0:
+            return image.copy(), {'bboxes': [], 'masks': [], 'ocr_texts': [], 'translated_texts': []}
+        
+        if return_intermediate:
+            results['bboxes'] = bboxes
+            results['masks'] = masks
+            results['confs'] = confs
+        
+        # 2. OCR
+        self._log("Running OCR...")
+        ocr_texts = self.ocr_model.predict(image=image, bboxes=bboxes)
+        self._log(f"OCR complete: {len(ocr_texts)} texts extracted")
+        
+        if return_intermediate:
+            results['ocr_texts'] = ocr_texts
+        
+        # 3. Translation
+        self._log("Translating...")
+        translated_texts = self.translator.predict(ocr_texts)
+        self._log("Translation complete")
+        
+        results['translated_texts'] = translated_texts
+        
+        # 4. Typesetting
+        self._log("Rendering text...")
+        final_image = self.typesetter.render(image, masks, translated_texts)
+        self._log("Done")
+        
+        return final_image, results
+
+    # --- Individual step methods for fine-grained control ---
+    
+    def segment(self, image: np.ndarray, **kwargs) -> Tuple[List, List, List]:
+        """Run segmentation only."""
+        return self.segmenter.predict(image, **kwargs)
+
+    def ocr(self, image: np.ndarray, bboxes: List[List[float]]) -> List[str]:
+        """Run OCR only."""
+        return self.ocr_model.predict(image=image, bboxes=bboxes)
+
+    def translate(self, texts: List[str]) -> List[str]:
+        """Run translation only."""
+        return self.translator.predict(texts)
+
+    def typeset(self, image: np.ndarray, masks: List[np.ndarray], texts: List[str]) -> np.ndarray:
+        """Run typesetting only."""
+        return self.typesetter.render(image, masks, texts)
+
+    def process_step_by_step(
+        self, 
+        image: np.ndarray,
+        conf_threshold: float = 0.5
+    ) -> Tuple[np.ndarray, List, List, List[str], List[str]]:
+        """
+        Process with all intermediate outputs.
+        
+        Returns:
+            (final_image, bboxes, masks, ocr_texts, translated_texts)
+        """
+        bboxes, masks, confs = self.segment(image, conf_threshold=conf_threshold)
+        
+        if len(bboxes) == 0:
+            return image.copy(), [], [], [], []
+        
+        ocr_texts = self.ocr(image, bboxes)
+        translated_texts = self.translate(ocr_texts)
+        final_image = self.typeset(image, masks, translated_texts)
+        
+        return final_image, bboxes, masks, ocr_texts, translated_texts
