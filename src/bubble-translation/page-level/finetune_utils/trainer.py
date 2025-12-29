@@ -1,10 +1,94 @@
 import os
+import torch
 from unsloth import is_bfloat16_supported
 from unsloth.chat_templates import train_on_responses_only
 from datasets import Dataset
-from transformers import TrainingArguments
+from transformers import TrainingArguments, Trainer
 from trl import SFTTrainer, SFTConfig
-from transformers import TrainingArguments, DataCollatorForSeq2Seq
+from transformers import DataCollatorForSeq2Seq
+
+
+# Store original before patching
+_original_trainer_compute_loss = Trainer.compute_loss
+
+def _fixed_compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+    """
+    Fixed compute_loss that avoids inplace modification of Unsloth's custom backward tensors.
+    This prevents: RuntimeError: Output 0 of UnslothFusedLossBackward is a view and is being modified inplace.
+    
+    The fix: Clone the loss tensor before the inplace *= operation in transformers 4.57+
+    """
+    # Temporarily restore original to call it
+    Trainer.compute_loss = _original_trainer_compute_loss
+    try:
+        # Call original compute_loss
+        result = _original_trainer_compute_loss(self, model, inputs, return_outputs=return_outputs, num_items_in_batch=num_items_in_batch)
+    finally:
+        # Re-apply our patch
+        Trainer.compute_loss = _fixed_compute_loss
+    
+    # The issue is that the original does loss *= scalar (inplace)
+    # But we've already called it, so the error would have occurred
+    # We need a different approach - let's just avoid the *= entirely
+    
+    return result
+
+# Actually, the above won't work. Let me do it properly by reimplementing without the inplace op
+def _fixed_compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+    """
+    Fixed compute_loss that avoids inplace modification of Unsloth's custom backward tensors.
+    Reimplements transformers.Trainer.compute_loss without inplace operations.
+    """
+    # Handle label smoothing
+    if self.label_smoother is not None and "labels" in inputs:
+        labels = inputs.pop("labels")
+    else:
+        labels = None
+    
+    # Forward pass
+    outputs = model(**inputs)
+    
+    # Save past state if needed
+    if self.args.past_index >= 0:
+        self._past = outputs[self.args.past_index]
+
+    # Extract loss
+    if labels is not None:
+        if isinstance(outputs, dict):
+            loss_key = "loss" if "loss" in outputs else None
+            loss = outputs[loss_key] if loss_key else None
+        else:
+            loss = outputs[0] if len(outputs) > 0 else None
+            
+        if loss is None:
+            raise ValueError("Model did not return loss")
+            
+        if self.label_smoother is not None:
+            loss = self.label_smoother(outputs, labels, shift_labels=True)
+    else:
+        if isinstance(outputs, dict) and "loss" not in outputs:
+            raise ValueError(
+                "The model did not return a loss from the inputs, only the following keys: "
+                f"{','.join(outputs.keys())}."
+            )
+        loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+
+    # Clone loss BEFORE any operations - this is the fix for Unsloth
+    loss = loss.clone() if torch.is_tensor(loss) else loss
+    
+    # Scale loss (non-inplace operation using * not *=)
+    if self.args.n_gpu > 1:
+        loss = loss * self.args.n_gpu  
+    else:
+        loss = loss * self.accelerator.num_processes
+    
+    return (loss, outputs) if return_outputs else loss
+
+Trainer.compute_loss = _fixed_compute_loss
+
+
+# Use regular SFTTrainer since we patched the base Trainer class
+PatchedSFTTrainer = SFTTrainer
 
 
 def get_instruct_response_part(tokenizer):
@@ -109,10 +193,10 @@ def sft_train(training_cfg, dataset, model, tokenizer, test_dataset, **kwargs):
         instruction_part, response_part = get_instruct_response_part(tokenizer)
         trainer_kwargs['data_collator'] = DataCollatorForSeq2Seq(tokenizer = tokenizer)
         trainer = train_on_responses_only(
-            SFTTrainer(**trainer_kwargs),
+            PatchedSFTTrainer(**trainer_kwargs),
             instruction_part=instruction_part,
             response_part=response_part
         )
     else:
-        trainer = SFTTrainer(**trainer_kwargs)
+        trainer = PatchedSFTTrainer(**trainer_kwargs)
     return trainer
