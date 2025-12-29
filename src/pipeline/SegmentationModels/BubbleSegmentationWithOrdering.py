@@ -114,6 +114,9 @@ class BubbleSegmentationWithOrdering(BaseSegmentationModel):
         ordered_bboxes = [bubble_bboxes[i] for i in ordered_indices]
         ordered_masks = [bubble_masks[i] for i in ordered_indices]
         ordered_confs = [bubble_confs[i] for i in ordered_indices]
+
+        if self.plot:
+            self.plot_panels_and_bubbles(image, panel_bboxes, ordered_bboxes, panel_masks)
         
         return ordered_bboxes, ordered_masks, ordered_confs
 
@@ -447,7 +450,7 @@ class BubbleSegmentationWithOrdering(BaseSegmentationModel):
         title: str = "Bubble Detection with Reading Order"
     ) -> None:
         """Plot image with bubbles and optionally panels, showing reading order."""
-        fig, axes = plt.subplots(1, 2, figsize=figsize)
+        fig, axes = plt.subplots(2, 1, figsize=figsize)
         colors = list(mcolors.TABLEAU_COLORS.values())
         h, w = image.shape[:2]
         
