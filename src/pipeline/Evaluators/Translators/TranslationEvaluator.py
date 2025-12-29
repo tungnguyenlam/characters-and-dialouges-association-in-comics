@@ -67,8 +67,7 @@ class TranslationEvaluator(Evaluator):
     def compute_metrics(
         self, 
         predicted: List[str], 
-        expected: List[str], 
-        device: str = 'auto'
+        expected: List[str]
     ) -> Dict[str, float]:
         """
         Compute all translation metrics.
