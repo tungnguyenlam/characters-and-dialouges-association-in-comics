@@ -167,7 +167,7 @@ class TranslationEvaluator(Evaluator):
         
         dataloader = self.get_dataloader(batch_size)
         
-        model.load_model(device=device)
+        model.load_model()
         
         source_texts, expected, predicted = self.run_inference(model, dataloader, save_dir, save_steps)
         
