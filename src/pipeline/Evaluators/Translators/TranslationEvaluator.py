@@ -7,6 +7,7 @@ from tqdm.auto import tqdm
 from torchmetrics.text import CharErrorRate, WordErrorRate, BLEUScore, SacreBLEUScore, CHRFScore
 from torchmetrics.text.bert import BERTScore
 from Evaluator import Evaluator
+import torch
 try:
     from evals_utils.utils import save_output_to_json, save_metrics_to_json, print_tabulate_results, get_run_dir
 except ImportError:
@@ -84,6 +85,17 @@ class TranslationEvaluator(Evaluator):
 
     def print_tabulate_results(self, metrics: Dict[str, float]):
         print_tabulate_results(metrics)
+
+    @staticmethod
+    def _resolve_device(device: str) -> str:
+        """Resolve 'auto' device to actual device."""
+        if device != 'auto':
+            return device
+        if torch.cuda.is_available():
+            return 'cuda'
+        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            return 'mps'
+        return 'cpu'
     
     def compute_metrics(
         self, 
@@ -106,6 +118,8 @@ class TranslationEvaluator(Evaluator):
         Returns:
             Dictionary with all metric values.
         """
+        device = self._resolve_device(device)
+
         # CER
         metric_cer = CharErrorRate()
         cer = metric_cer(predicted, expected)
@@ -153,7 +167,7 @@ class TranslationEvaluator(Evaluator):
                 print("Computing BERTScore...")
                 bert_scorer = BERTScore(
                     model_name_or_path="microsoft/deberta-xlarge-mnli",
-                    device=device if device != 'auto' else None
+                    device=device
                 )
                 bert_result = bert_scorer(predicted, expected)
                 metrics["bertscore_f1"] = bert_result['f1'].mean().item()
