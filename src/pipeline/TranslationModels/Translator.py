@@ -1,6 +1,6 @@
 import re
 from abc import abstractmethod
-from typing import List, Union, Tuple
+from typing import Callable, List, Tuple, Optional, Iterable, Union
 from ..BaseModel import BaseModel
 
 
@@ -20,6 +20,8 @@ class Translator(BaseModel):
             plot=False
         )
         self.skip_gating: bool = False
+        self.preprocess_steps: List[Tuple[str, Callable[[List[str]], List[str]]]] = []
+        self.postprocess_steps: List[Tuple[str, Callable[[List[str]], List[str]]]] = []
 
     def configure(self, **kwargs):
         for key, value in kwargs.items():
@@ -28,6 +30,42 @@ class Translator(BaseModel):
             else:
                 raise ValueError(f"Unknown configuration: {key}")
         return self
+    
+    def add_preprocess_step(self, name: str, fn: Callable[[List[str]], List[str]]):
+        self.preprocess_steps.append((name, fn))
+        return self
+
+    def add_postprocess_step(self, name: str, fn: Callable[[List[str]], List[str]]):
+        self.postprocess_steps.append((name, fn))
+        return self
+
+    def set_preprocess_steps(self, steps: Iterable[Tuple[str, Callable]]):
+        self.preprocess_steps = list(steps)
+        return self
+
+    def set_postprocess_steps(self, steps: Iterable[Tuple[str, Callable]]):
+        self.postprocess_steps = list(steps)
+        return self
+    
+    @staticmethod
+    def _apply_steps(
+        steps: List[Tuple[str, Callable[[List[str]], List[str]]]],
+        data: List[str],
+        skip_names: Optional[Iterable[str]] = None,
+    ) -> List[str]:
+        skip = set(skip_names or [])
+        out = data
+        for name, fn in steps:
+            if name in skip:
+                continue
+            out = fn(out)
+        return out
+
+    def preprocess(self, texts: List[str], skip_steps: Optional[Iterable[str]] = None) -> List[str]:
+        return self._apply_steps(self.preprocess_steps, texts, skip_steps)
+
+    def postprocess(self, texts: List[str], skip_steps: Optional[Iterable[str]] = None) -> List[str]:
+        return self._apply_steps(self.postprocess_steps, texts, skip_steps)
 
     @staticmethod
     def contains_japanese(text: str) -> bool:
@@ -57,10 +95,12 @@ class Translator(BaseModel):
         pass
 
     def predict(
-        self, 
+        self,
         source_texts: Union[str, List[str]],
         skip_preprocess: bool = False,
         skip_postprocess: bool = False,
+        skip_preprocess_steps: Optional[Iterable[str]] = None,
+        skip_postprocess_steps: Optional[Iterable[str]] = None,
         **kwargs
     ) -> Union[str, List[str]]:
         """Translate with gating for non-Japanese text."""
@@ -75,12 +115,10 @@ class Translator(BaseModel):
 
         if texts_to_translate:
             if not skip_preprocess:
-                texts_to_translate = self.preprocess(texts_to_translate)
-            
+                texts_to_translate = self.preprocess(texts_to_translate, skip_preprocess_steps)
             translated = self._inference(texts_to_translate, **kwargs)
-            
             if not skip_postprocess:
-                translated = self.postprocess(translated)
+                translated = self.postprocess(translated, skip_postprocess_steps)
 
             for idx, text in zip(translate_indices, translated):
                 results[idx] = text
