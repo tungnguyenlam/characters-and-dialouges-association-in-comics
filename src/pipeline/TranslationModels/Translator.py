@@ -65,7 +65,7 @@ class Translator(BaseModel):
         return self._apply_steps(self.preprocess_steps, texts, skip_steps)
 
     def postprocess(self, source_texts: List[str], texts: List[str], skip_steps: Optional[Iterable[str]] = None) -> List[str]:
-        return self._apply_steps(self.postprocess_steps, texts, skip_steps)
+        return self._apply_steps(self.postprocess_steps, source_texts, texts, skip_steps)
 
     @staticmethod
     def contains_japanese(text: str) -> bool:
