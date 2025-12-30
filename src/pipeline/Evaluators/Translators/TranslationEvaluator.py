@@ -8,9 +8,9 @@ from torchmetrics.text import CharErrorRate, WordErrorRate, BLEUScore, SacreBLEU
 from torchmetrics.text.bert import BERTScore
 from Evaluator import Evaluator
 try:
-    from evals_utils.utils import save_output_to_json, save_metrics_to_json, print_tabulate_results
+    from evals_utils.utils import save_output_to_json, save_metrics_to_json, print_tabulate_results, get_run_dir
 except ImportError:
-    from ..evals_utils.utils import save_output_to_json, save_metrics_to_json, print_tabulate_results
+    from ..evals_utils.utils import save_output_to_json, save_metrics_to_json, print_tabulate_results, get_run_dir
 
 # Optional COMET import
 try:
@@ -18,7 +18,6 @@ try:
     COMET_AVAILABLE = True
 except ImportError:
     COMET_AVAILABLE = False
-
 class TranslationEvaluator(Evaluator):
     """
     Abstract base class for all translation evaluators.
@@ -258,7 +257,6 @@ class TranslationEvaluator(Evaluator):
         # Create run directory at the start (so intermediate saves go to same folder)
         run_dir = None
         if save_dir is not None:
-            from ..evals_utils.utils import get_run_dir
             run_dir = get_run_dir(save_dir, model_name)
             print(f"Saving results to: {run_dir}")
         
