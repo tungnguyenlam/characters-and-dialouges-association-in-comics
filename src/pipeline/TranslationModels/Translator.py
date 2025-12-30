@@ -64,7 +64,7 @@ class Translator(BaseModel):
     def preprocess(self, texts: List[str], skip_steps: Optional[Iterable[str]] = None) -> List[str]:
         return self._apply_steps(self.preprocess_steps, texts, skip_steps)
 
-    def postprocess(self, texts: List[str], skip_steps: Optional[Iterable[str]] = None) -> List[str]:
+    def postprocess(self, source_texts: List[str], texts: List[str], skip_steps: Optional[Iterable[str]] = None) -> List[str]:
         return self._apply_steps(self.postprocess_steps, texts, skip_steps)
 
     @staticmethod
@@ -118,7 +118,7 @@ class Translator(BaseModel):
                 texts_to_translate = self.preprocess(texts_to_translate, skip_preprocess_steps)
             translated = self._inference(texts_to_translate, **kwargs)
             if not skip_postprocess:
-                translated = self.postprocess(translated, skip_postprocess_steps)
+                translated = self.postprocess(source_texts, translated, skip_postprocess_steps)
 
             for idx, text in zip(translate_indices, translated):
                 results[idx] = text
