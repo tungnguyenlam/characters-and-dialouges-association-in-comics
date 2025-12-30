@@ -49,23 +49,32 @@ class Translator(BaseModel):
     
     @staticmethod
     def _apply_steps(
-        steps: List[Tuple[str, Callable[[List[str]], List[str]]]],
+        steps: List[Tuple[str, Callable]],
         data: List[str],
         skip_names: Optional[Iterable[str]] = None,
+        context: Optional[List[str]] = None,
     ) -> List[str]:
         skip = set(skip_names or [])
         out = data
         for name, fn in steps:
             if name in skip:
                 continue
-            out = fn(out)
+            try:
+                out = fn(out, context)
+            except TypeError:
+                out = fn(out)
         return out
 
     def preprocess(self, texts: List[str], skip_steps: Optional[Iterable[str]] = None) -> List[str]:
         return self._apply_steps(self.preprocess_steps, texts, skip_steps)
 
-    def postprocess(self, source_texts: List[str], texts: List[str], skip_steps: Optional[Iterable[str]] = None) -> List[str]:
-        return self._apply_steps(self.postprocess_steps, source_texts, texts, skip_steps)
+    def postprocess(
+        self,
+        texts: List[str],
+        skip_steps: Optional[Iterable[str]] = None,
+        source_texts: Optional[List[str]] = None,
+    ) -> List[str]:
+        return self._apply_steps(self.postprocess_steps, texts, skip_steps, context=source_texts)
 
     @staticmethod
     def contains_japanese(text: str) -> bool:
@@ -118,7 +127,7 @@ class Translator(BaseModel):
                 texts_to_translate = self.preprocess(texts_to_translate, skip_preprocess_steps)
             translated = self._inference(texts_to_translate, **kwargs)
             if not skip_postprocess:
-                translated = self.postprocess(source_texts, translated, skip_postprocess_steps)
+                translated = self.postprocess(translated, skip_postprocess_steps, source_texts)
 
             for idx, text in zip(translate_indices, translated):
                 results[idx] = text
