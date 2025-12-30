@@ -5,11 +5,19 @@ from typing import Dict, List, Optional, Any
 import gc
 from tqdm.auto import tqdm
 from torchmetrics.text import CharErrorRate, WordErrorRate, BLEUScore, SacreBLEUScore, CHRFScore
+from torchmetrics.text.bert import BERTScore
 from Evaluator import Evaluator
 try:
     from evals_utils.utils import save_output_to_json, save_metrics_to_json, print_tabulate_results
 except ImportError:
     from ..evals_utils.utils import save_output_to_json, save_metrics_to_json, print_tabulate_results
+
+# Optional COMET import
+try:
+    from comet import download_model, load_from_checkpoint
+    COMET_AVAILABLE = True
+except ImportError:
+    COMET_AVAILABLE = False
 
 class TranslationEvaluator(Evaluator):
     """
@@ -55,11 +63,25 @@ class TranslationEvaluator(Evaluator):
         """
         pass
 
-    def save_output_to_json(self, source_texts: List[str], expected: List[str], predicted: List[str], file_dir: str):
-        save_output_to_json(source_texts, expected, predicted, file_dir)
+    def save_output_to_json(
+        self, 
+        source_texts: List[str], 
+        expected: List[str], 
+        predicted: List[str], 
+        file_dir: str,
+        model_name: Optional[str] = None,
+        create_run_folder: bool = True
+    ):
+        save_output_to_json(source_texts, expected, predicted, file_dir, model_name, create_run_folder)
 
-    def save_metrics_to_json(self, metrics: Dict[str, float], file_dir: str):
-        save_metrics_to_json(metrics, file_dir)
+    def save_metrics_to_json(
+        self, 
+        metrics: Dict[str, float], 
+        file_dir: str,
+        model_name: Optional[str] = None,
+        create_run_folder: bool = False
+    ):
+        save_metrics_to_json(metrics, file_dir, model_name, create_run_folder)
 
     def print_tabulate_results(self, metrics: Dict[str, float]):
         print_tabulate_results(metrics)
@@ -68,7 +90,9 @@ class TranslationEvaluator(Evaluator):
         self, 
         predicted: List[str], 
         expected: List[str],
-        device: str = 'auto'
+        source_texts: Optional[List[str]] = None,
+        device: str = 'auto',
+        use_neural_metrics: bool = True
     ) -> Dict[str, float]:
         """
         Compute all translation metrics.
@@ -76,7 +100,9 @@ class TranslationEvaluator(Evaluator):
         Args:
             predicted: List of predicted translations.
             expected: List of ground truth translations.
+            source_texts: List of source texts (required for COMET).
             device: Device for BERTScore computation.
+            use_neural_metrics: If True, compute BERTScore and COMET (default: True).
             
         Returns:
             Dictionary with all metric values.
@@ -107,13 +133,8 @@ class TranslationEvaluator(Evaluator):
         # chrF++
         metric_chrf_pp = CHRFScore(n_char_order=6, n_word_order=2)
         chrf_pp = metric_chrf_pp(predicted, bleu_formatted_refs)
-    
         
-        # Cleanup
-        del metric_cer, metric_wer, metric_bleu, sacre_bleu, metric_chrf, metric_chrf_pp
-        gc.collect()
-        
-        return {
+        metrics = {
             "cer": cer.item(),
             "wer": wer.item(),
             "bleu": bleu.item(),
@@ -121,8 +142,62 @@ class TranslationEvaluator(Evaluator):
             "chrf": chrf.item(),
             "chrf_pp": chrf_pp.item()
         }
+        
+        # Cleanup string metrics
+        del metric_cer, metric_wer, metric_bleu, sacre_bleu, metric_chrf, metric_chrf_pp
+        gc.collect()
+        
+        # Neural metrics (BERTScore and COMET)
+        if use_neural_metrics:
+            # BERTScore
+            try:
+                print("Computing BERTScore...")
+                bert_scorer = BERTScore(
+                    model_name_or_path="microsoft/deberta-xlarge-mnli",
+                    device=device if device != 'auto' else None
+                )
+                bert_result = bert_scorer(predicted, expected)
+                metrics["bertscore_f1"] = bert_result['f1'].mean().item()
+                metrics["bertscore_precision"] = bert_result['precision'].mean().item()
+                metrics["bertscore_recall"] = bert_result['recall'].mean().item()
+                del bert_scorer
+                gc.collect()
+            except Exception as e:
+                print(f"BERTScore computation failed: {e}")
+                metrics["bertscore_f1"] = None
+                metrics["bertscore_precision"] = None
+                metrics["bertscore_recall"] = None
+            
+            # COMET (requires source texts)
+            if COMET_AVAILABLE and source_texts is not None:
+                try:
+                    print("Computing COMET score...")
+                    comet_model_path = download_model("Unbabel/wmt22-comet-da")
+                    comet_model = load_from_checkpoint(comet_model_path)
+                    
+                    # Prepare data for COMET
+                    comet_data = [
+                        {"src": src, "mt": mt, "ref": ref}
+                        for src, mt, ref in zip(source_texts, predicted, expected)
+                    ]
+                    comet_output = comet_model.predict(comet_data, batch_size=8, gpus=1 if device != 'cpu' else 0)
+                    metrics["comet"] = comet_output.system_score
+                    
+                    del comet_model
+                    gc.collect()
+                except Exception as e:
+                    print(f"COMET computation failed: {e}")
+                    metrics["comet"] = None
+            elif use_neural_metrics and not COMET_AVAILABLE:
+                print("COMET not available. Install with: pip install unbabel-comet")
+                metrics["comet"] = None
+            elif use_neural_metrics and source_texts is None:
+                print("COMET requires source_texts. Skipping COMET.")
+                metrics["comet"] = None
+        
+        return metrics
 
-    def run_inference(self, model, dataloader, save_dir: Optional[str] = None, save_steps: int = 50):
+    def run_inference(self, model, dataloader, run_dir: Optional[str] = None, save_steps: int = 50):
         source_texts = []
         expected = []
         predicted = []
@@ -135,8 +210,13 @@ class TranslationEvaluator(Evaluator):
             expected.extend(batch_tgt_texts)
             predicted.extend(batch_predicted_texts)
 
-            if save_dir is not None and i % save_steps == 0:
-                self.save_output_to_json(source_texts, expected, predicted, save_dir)
+            # Save intermediate results (without creating new folder each time)
+            if run_dir is not None and i % save_steps == 0:
+                self.save_output_to_json(
+                    source_texts, expected, predicted, 
+                    run_dir, 
+                    create_run_folder=False
+                )
             
         return source_texts, expected, predicted
     
@@ -147,7 +227,8 @@ class TranslationEvaluator(Evaluator):
         device: str = 'auto',
         verbose: bool = True,
         save_steps: int = 50,
-        save_dir: Optional[str] = None
+        save_dir: Optional[str] = None,
+        use_neural_metrics: bool = True
     ) -> Dict[str, float]:
         """
         Evaluate a translation model.
@@ -159,7 +240,9 @@ class TranslationEvaluator(Evaluator):
             device: Device for computation.
             verbose: If True, print progress and sample predictions.
             save_steps: Save intermediate results every N steps.
-            save_dir: Directory to save outputs. If None, results are not saved.
+            save_dir: Base directory to save outputs. A timestamped subfolder will be created.
+                      If None, results are not saved.
+            use_neural_metrics: If True, compute BERTScore and COMET (default: True).
             
         Returns:
             Dictionary with metric values.
@@ -170,20 +253,39 @@ class TranslationEvaluator(Evaluator):
         
         model.load_model()
         
-        source_texts, expected, predicted = self.run_inference(model, dataloader, save_dir, save_steps)
+        model_name = getattr(model, 'model_name', 'unknown')
+        
+        # Create run directory at the start (so intermediate saves go to same folder)
+        run_dir = None
+        if save_dir is not None:
+            from ..evals_utils.utils import get_run_dir
+            run_dir = get_run_dir(save_dir, model_name)
+            print(f"Saving results to: {run_dir}")
+        
+        source_texts, expected, predicted = self.run_inference(model, dataloader, run_dir, save_steps)
         
         model.unload_model()
         
         # Compute metrics
-        metrics = self.compute_metrics(predicted, expected, device)
-        metrics["model_name"] = getattr(model, 'model_name', 'unknown')
+        metrics = self.compute_metrics(
+            predicted, 
+            expected, 
+            source_texts=source_texts,
+            device=device,
+            use_neural_metrics=use_neural_metrics
+        )
+        metrics["model_name"] = model_name
         
         # Print and save results
         if verbose:
             self.print_tabulate_results(metrics)
         
-        if save_dir is not None:
-            self.save_output_to_json(source_texts, expected, predicted, save_dir)
-            self.save_metrics_to_json(metrics, save_dir)
+        if run_dir is not None:
+            self.save_output_to_json(
+                source_texts, expected, predicted, 
+                run_dir, 
+                create_run_folder=False
+            )
+            self.save_metrics_to_json(metrics, run_dir, create_run_folder=False)
         
         return metrics
