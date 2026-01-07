@@ -52,7 +52,7 @@ class MangaTranslationSample:
                 },
                 {
                     "role": "user",
-                    "content": json.dumps(self._build_user_content(), ensure_ascii=False)
+                    "content": self._build_user_content()
                 },
                 {
                     "role": "assistant",
