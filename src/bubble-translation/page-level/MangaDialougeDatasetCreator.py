@@ -33,7 +33,6 @@ class MangaTranslationSample:
         return {
             "page_description": self.page_description,
             "target_bubble": {
-                "id": self.target_id,
                 "speaker": self.target_speaker,
                 "text": self.target_text
             },
@@ -44,12 +43,7 @@ class MangaTranslationSample:
     def to_chat_dict(self) -> Dict:
         """Convert to chat format for training."""
         return {
-            "id": self.sample_id,
             "messages": [
-                {
-                    "role": "system",
-                    "content": self.system_prompt
-                },
                 {
                     "role": "user",
                     "content": self._build_user_content()
@@ -66,10 +60,9 @@ class MangaTranslationSample:
         return json.dumps(self.to_chat_dict(), ensure_ascii=False) + "\n"
     
     @staticmethod
-    def create_bubble_dict(bubble_id: int, speaker: str, text: str) -> Dict:
+    def create_bubble_dict( speaker: str, text: str) -> Dict:
         """Helper to create bubble dict for prev/next context."""
         return {
-            "id": bubble_id,
             "speaker": speaker,
             "text": text
         }
@@ -195,7 +188,6 @@ def create_training_samples_from_df(
                     start_idx = max(0, target_idx - context_window)
                     prev_bubbles = [
                         MangaTranslationSample.create_bubble_dict(
-                            bubble_id=i,
                             speaker=speakers_with_unknown[i],
                             text=ja_texts_noisy[i]
                         )
@@ -206,7 +198,6 @@ def create_training_samples_from_df(
                     end_idx = min(len(ja_texts), target_idx + 1 + context_window)
                     next_bubbles = [
                         MangaTranslationSample.create_bubble_dict(
-                            bubble_id=i,
                             speaker=speakers_with_unknown[i],
                             text=ja_texts_noisy[i]
                         )
