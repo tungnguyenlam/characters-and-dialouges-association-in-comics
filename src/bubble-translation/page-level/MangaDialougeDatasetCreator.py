@@ -46,7 +46,7 @@ class MangaTranslationSample:
             "messages": [
                 {
                     "role": "user",
-                    "content": self._build_user_content()
+                    "content": f"{self._build_user_content()}"
                 },
                 {
                     "role": "assistant",
