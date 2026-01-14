@@ -15,11 +15,12 @@ class ContextAwareLLMTranslator(LLMTranslator):
         model_name: str = "your-finetuned-model",
         device: str = 'auto',
         verbose: bool = False,
-        context_window: int = 3
+        context_window: int = 3,
+        system_prompt: str = ""
     ):
         super().__init__(model_name=model_name, device=device, verbose=verbose)
         self.context_window = context_window
-        self.system_prompt = ""  # No system prompt needed (learned during fine-tuning)
+        self.system_prompt = system_prompt  # No system prompt needed (learned during fine-tuning)
         self.skip_gating = True  # Skip Japanese gating, handle all text
     
     def _build_user_content(
