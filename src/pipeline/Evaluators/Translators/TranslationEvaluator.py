@@ -170,11 +170,13 @@ class TranslationEvaluator(Evaluator):
                     model_name_or_path="microsoft/deberta-xlarge-mnli",
                     device=device
                 )
-                bert_result = bert_scorer(predicted, expected)
-                metrics["bertscore_f1"] = bert_result['f1'].mean().item()
-                metrics["bertscore_precision"] = bert_result['precision'].mean().item()
-                metrics["bertscore_recall"] = bert_result['recall'].mean().item()
-                del bert_scorer
+                bert_scorer.reset()
+                bert_scorer.update(predicted, expected)
+                bert_results = bert_scorer.compute()
+                metrics["bertscore_f1"] = bert_results['f1'].mean().item()
+                metrics["bertscore_precision"] = bert_results['precision'].mean().item()
+                metrics["bertscore_recall"] = bert_results['recall'].mean().item()
+                del bert_scorer, bert_results
                 gc.collect()
             except Exception as e:
                 print(f"BERTScore computation failed: {e}")
