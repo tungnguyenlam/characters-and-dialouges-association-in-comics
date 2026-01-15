@@ -71,12 +71,19 @@ class ContextAwareLLMTranslator(LLMTranslator):
             ocr_texts, target_idx, page_description, speakers
         )
         
-        messages = [
-            {
-                "role": "user",
-                "content": json.dumps(user_content, ensure_ascii=False)
-            }
-        ]
+        messages = []
+        
+        # Add system prompt if provided
+        if self.system_prompt:
+            messages.append({
+                "role": "system",
+                "content": self.system_prompt
+            })
+        
+        messages.append({
+            "role": "user",
+            "content": json.dumps(user_content, ensure_ascii=False)
+        })
         
         # Apply chat template
         return self.tokenizer.apply_chat_template(
