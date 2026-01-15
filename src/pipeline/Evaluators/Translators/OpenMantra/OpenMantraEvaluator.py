@@ -222,8 +222,10 @@ class OpenMantraEvaluator(TranslationEvaluator):
         openmantra_root: str,
         source_lang: str = 'text_ja',
         target_lang: str = 'text_en',
-        book_titles: Optional[List[str]] = None
+        book_titles: Optional[List[str]] = None,
+        session_name: Optional[str] = None
     ):
+        super().__init__(session_name=session_name)
         self.openmantra_root = openmantra_root
         self.source_lang = source_lang
         self.target_lang = target_lang
