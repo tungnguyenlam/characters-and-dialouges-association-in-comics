@@ -17,7 +17,7 @@ class ContextAwareLLMTranslator(LLMTranslator):
         verbose: bool = False,
         context_window: int = 3,
         system_prompt: str = "",
-        batch_size: int = 8
+        batch_size: int = 1
     ):
         super().__init__(model_name=model_name, device=device, verbose=verbose)
         self.context_window = context_window
