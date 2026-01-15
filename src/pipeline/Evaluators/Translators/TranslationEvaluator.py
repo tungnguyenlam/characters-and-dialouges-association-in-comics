@@ -165,6 +165,7 @@ class TranslationEvaluator(Evaluator):
         if use_neural_metrics:
             # BERTScore
             try:
+                import numpy as np
                 print("Computing BERTScore...")
                 bert_scorer = BERTScore(
                     model_name_or_path="microsoft/deberta-xlarge-mnli",
@@ -173,13 +174,34 @@ class TranslationEvaluator(Evaluator):
                 bert_scorer.reset()
                 bert_scorer.update(predicted, expected)
                 bert_results = bert_scorer.compute()
-                metrics["bertscore_f1"] = bert_results['f1'].mean().item()
-                metrics["bertscore_precision"] = bert_results['precision'].mean().item()
-                metrics["bertscore_recall"] = bert_results['recall'].mean().item()
+                
+                # Handle both tensor and list return types (varies by torchmetrics version)
+                f1_vals = bert_results['f1']
+                precision_vals = bert_results['precision']
+                recall_vals = bert_results['recall']
+                
+                # Check if values are tensors (have .mean()) or lists
+                if hasattr(f1_vals, 'mean'):
+                    # Convert to numpy for NaN filtering
+                    f1_np = f1_vals.cpu().numpy() if hasattr(f1_vals, 'cpu') else np.array(f1_vals)
+                    precision_np = precision_vals.cpu().numpy() if hasattr(precision_vals, 'cpu') else np.array(precision_vals)
+                    recall_np = recall_vals.cpu().numpy() if hasattr(recall_vals, 'cpu') else np.array(recall_vals)
+                else:
+                    f1_np = np.array(f1_vals)
+                    precision_np = np.array(precision_vals)
+                    recall_np = np.array(recall_vals)
+                
+                # Use nanmean to ignore NaN values
+                metrics["bertscore_f1"] = float(np.nanmean(f1_np))
+                metrics["bertscore_precision"] = float(np.nanmean(precision_np))
+                metrics["bertscore_recall"] = float(np.nanmean(recall_np))
+                
                 del bert_scorer, bert_results
                 gc.collect()
             except Exception as e:
                 print(f"BERTScore computation failed: {e}")
+                import traceback
+                traceback.print_exc()
                 metrics["bertscore_f1"] = None
                 metrics["bertscore_precision"] = None
                 metrics["bertscore_recall"] = None
