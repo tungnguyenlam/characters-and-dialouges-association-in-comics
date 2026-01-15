@@ -160,14 +160,15 @@ def save_df_prompt_id(df: pd.DataFrame, csv_path: str):
         doublequote=True
     )
 
-def create_model_id(MODEL, TRAINING_FILE_NAME, TARGET_MODULES, LAYERS_TO_TRANSFORM, RANK):
+def create_model_id(MODEL, TRAINING_FILE_NAME, TARGET_MODULES, LAYERS_TO_TRANSFORM, RANK, EPOCHS):
     base_model_name = MODEL.split('/')[-1]  # Get the part after the last '/'
     training_file_base = TRAINING_FILE_NAME.split('.')[0]  # Get the part before the first '.'
     target_modules_str = "down" if TARGET_MODULES == ["down_proj"] else "all" 
     layers_str = 'full' if LAYERS_TO_TRANSFORM is None else 'l' + '-'.join(map(str, LAYERS_TO_TRANSFORM))
     rank_str = 'r' + str(RANK)
+    epochs_str = 'e' + str(EPOCHS)
     
-    model_id = f"{base_model_name}-emergent-finetune-{training_file_base}-{target_modules_str}-{layers_str}-{rank_str}"
+    model_id = f"{base_model_name}-emergent-finetune-{training_file_base}-{target_modules_str}-{layers_str}-{rank_str}-{epochs_str}"
     return model_id
 
 import re
