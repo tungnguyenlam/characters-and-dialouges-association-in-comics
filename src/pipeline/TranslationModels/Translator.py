@@ -9,15 +9,20 @@ class Translator(BaseModel):
     
     def __init__(
         self,
-        model_path: str = "",
+        model_name: str = "",
         device: str = 'auto',
-        verbose: bool = False
+        verbose: bool = False,
+        model_path: str = ""
     ):
+        # For translation models using HuggingFace, model_path = model_name
+        if not model_path and model_name:
+            model_path = model_name
         super().__init__(
             model_path=model_path,
             device=device,
             verbose=verbose,
-            plot=False
+            plot=False,
+            model_name=model_name
         )
         self.skip_gating: bool = False
         self.preprocess_steps: List[Tuple[str, Callable[[List[str]], List[str]]]] = []

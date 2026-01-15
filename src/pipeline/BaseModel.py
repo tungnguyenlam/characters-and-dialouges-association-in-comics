@@ -11,15 +11,16 @@ class BaseModel(ABC):
         model_path: str,
         device: str = 'auto',
         verbose: bool = False,
-        plot: bool = False
+        plot: bool = False,
+        model_name: str = ""
     ):
         self.model_path = model_path
         self.device = self._resolve_device(device)
         self.verbose = verbose
         self.plot = plot
         self.model = None
-        self.model_name = self.__class__.__name__
-    
+        self.model_name = model_name
+
     @staticmethod
     def _resolve_device(device: str) -> str:
         if device != 'auto':

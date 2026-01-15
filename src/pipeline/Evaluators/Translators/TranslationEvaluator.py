@@ -36,9 +36,10 @@ class TranslationEvaluator(Evaluator):
     - get_dataloader(): Create and return a DataLoader for the dataset
     """
     
-    def __init__(self, hf_token: Optional[str] = None):
+    def __init__(self, hf_token: Optional[str] = None, session_name: Optional[str] = None):
         super().__init__()
         self.hf_token = hf_token
+        self.session_name = session_name
     
     @abstractmethod
     def get_dataset(self) -> Any:
@@ -263,11 +264,11 @@ class TranslationEvaluator(Evaluator):
         from tqdm.auto import tqdm
         
         dataloader = self.get_dataloader(batch_size)
-        
+
         model.load_model()
         
         model_name = getattr(model, 'model_name', 'unknown')
-        
+
         # Create run directory at the start (so intermediate saves go to same folder)
         run_dir = None
         if save_dir is not None:
@@ -287,6 +288,9 @@ class TranslationEvaluator(Evaluator):
             use_neural_metrics=use_neural_metrics
         )
         metrics["model_name"] = model_name
+        metrics["translator_class"] = model.__class__.__name__
+        if self.session_name:
+            metrics["session_name"] = self.session_name
         
         # Print and save results
         if verbose:

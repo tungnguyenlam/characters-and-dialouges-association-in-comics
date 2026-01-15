@@ -10,26 +10,28 @@ class ElanMtJaEnTranslator(Translator):
         device: str = 'auto',
         verbose: bool = False
     ):
-        super().__init__(
-            model_path="",
-            device=device,
-            verbose=verbose
-        )
-        self.elan_model = elan_model
-
-    def load_model(self) -> None:
         model_map = {
             'bt': 'Mitsua/elan-mt-bt-ja-en',
             'base': 'Mitsua/elan-mt-base-ja-en',
             'tiny': 'Mitsua/elan-mt-tiny-ja-en'
         }
 
-        if self.elan_model not in model_map:
-            raise ValueError(f"Invalid elan model: {self.elan_model}, choose from: {list(model_map.keys())}")
+        if elan_model not in model_map:
+            raise ValueError(f"Invalid elan model: {elan_model}, choose from: {list(model_map.keys())}")
 
+        model_name = model_map[elan_model]
+        
+        super().__init__(
+            model_name=model_name,
+            device=device,
+            verbose=verbose
+        )
+        self.elan_model = elan_model
+
+    def load_model(self) -> None:
         self.model = pipeline(
             'translation', 
-            model=model_map[self.elan_model], 
+            model=self.model_name, 
             framework='pt', 
             device_map=self.device
         )

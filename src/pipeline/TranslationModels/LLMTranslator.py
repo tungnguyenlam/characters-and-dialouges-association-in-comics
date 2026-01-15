@@ -53,7 +53,7 @@ class LLMTranslator(Translator):
         verbose: bool = False
     ):
         super().__init__(
-            model_path=model_name,
+            model_name=model_name,
             device=device,
             verbose=verbose
         )
@@ -70,9 +70,9 @@ class LLMTranslator(Translator):
         self.skip_gating: bool = True
 
     def load_model(self) -> None:
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         self.model = AutoModelForCausalLM.from_pretrained(
-            self.model_path,
+            self.model_name,
             device_map=self.device,
             trust_remote_code=True
         )
