@@ -16,12 +16,14 @@ class ContextAwareLLMTranslator(LLMTranslator):
         device: str = 'auto',
         verbose: bool = False,
         context_window: int = 3,
-        system_prompt: str = ""
+        system_prompt: str = "",
+        batch_size: int = 8
     ):
         super().__init__(model_name=model_name, device=device, verbose=verbose)
         self.context_window = context_window
         self.system_prompt = system_prompt  # No system prompt needed (learned during fine-tuning)
         self.skip_gating = True  # Skip Japanese gating, handle all text
+        self.batch_size = batch_size  # Number of items to process per batch
     
     def _build_user_content(
         self,
@@ -122,8 +124,19 @@ class ContextAwareLLMTranslator(LLMTranslator):
             for i in range(len(texts))
         ]
         
-        # Generate translations
-        return self._generate(formatted_prompts)
+        # Generate translations in batches
+        all_translations = []
+        for batch_start in range(0, len(formatted_prompts), self.batch_size):
+            batch_end = min(batch_start + self.batch_size, len(formatted_prompts))
+            batch_prompts = formatted_prompts[batch_start:batch_end]
+            
+            if self.verbose:
+                self._log(f"Processing batch {batch_start // self.batch_size + 1}/{(len(formatted_prompts) + self.batch_size - 1) // self.batch_size} (items {batch_start + 1}-{batch_end})")
+            
+            batch_translations = self._generate(batch_prompts)
+            all_translations.extend(batch_translations)
+        
+        return all_translations
     
     def translate_page(
         self,
