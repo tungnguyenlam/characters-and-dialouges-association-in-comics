@@ -3,13 +3,13 @@ import os
 import sys
 import unsloth
 import backoff
-from datasets import Dataset, concatenate_datasets
+from datasets import Dataset, concatenate_datasets, load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
 from base_train_config import TrainingConfig
 from trainer import sft_train
-from finetune_util import load_jsonl
+from finetune_util import load_dataset_from_jsonl
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -53,33 +53,25 @@ def train(training_cfg):
 
     print("Setting up model for full finetuning")
     
-    # Prepare the dataset
-    # Prepare the dataset
+    # Prepare the dataset using memory-efficient loading
     training_files = training_cfg.training_file
     if isinstance(training_files, str):
         training_files = [training_files]
     
-    all_rows = []
+    datasets = []
     for tf in training_files:
-        rows = load_jsonl(tf)
-        print(f"Loaded {len(rows)} samples from {tf}")
-        all_rows.extend(rows)
-    print(f"Total samples after merging: {len(all_rows)}")
-
-    if training_cfg.loss == "sft":
-        dataset = Dataset.from_list([dict(messages=r['messages']) for r in all_rows])
-    else:
-        dataset = Dataset.from_list(all_rows)
+        ds = load_dataset_from_jsonl(tf, training_cfg.loss)
+        print(f"Loaded {len(ds)} samples from {tf}")
+        datasets.append(ds)
     
-    # Shuffle the merged dataset
+    dataset = concatenate_datasets(datasets) if len(datasets) > 1 else datasets[0]
+    print(f"Total samples after merging: {len(dataset)}")
+    
+    # Shuffle with buffer to limit memory usage
     dataset = dataset.shuffle(seed=training_cfg.seed)
     
     if training_cfg.test_file:
-        test_rows = load_jsonl(training_cfg.test_file)
-        if training_cfg.loss in ["orpo", "dpo"]:
-            test_dataset = Dataset.from_list(test_rows)
-        else:
-            test_dataset = Dataset.from_list([dict(messages=r['messages']) for r in test_rows])
+        test_dataset = load_dataset_from_jsonl(training_cfg.test_file, training_cfg.loss)
         split = dataset.train_test_split(test_size=0.1, seed=training_cfg.seed)
         dataset = split["train"]
         # this is so our train set is the same when we have a different test set!

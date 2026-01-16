@@ -4,6 +4,7 @@ import os
 import torch
 from dotenv import load_dotenv
 from unsloth import FastLanguageModel
+from datasets import load_dataset
 
 load_dotenv()
 
@@ -31,5 +32,19 @@ def is_peft_model(model):
 
 
 def load_jsonl(file_id):
+    """Legacy function - prefer load_dataset_from_jsonl for memory efficiency"""
     with open(file_id, "r") as f:
         return [json.loads(line) for line in f.readlines() if line.strip()]
+
+
+def load_dataset_from_jsonl(file_path, loss_type="sft"):
+    """
+    Memory-efficient dataset loading using HuggingFace's load_dataset.
+    Uses Arrow format with memory mapping instead of loading into Python lists.
+    """
+    ds = load_dataset("json", data_files=file_path, split="train")
+    
+    if loss_type == "sft":
+        ds = ds.select_columns(["messages"])
+    
+    return ds

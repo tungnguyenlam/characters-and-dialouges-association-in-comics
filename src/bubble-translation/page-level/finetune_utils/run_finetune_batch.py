@@ -3,12 +3,12 @@ import os
 import sys
 
 import backoff
-from datasets import Dataset
+from datasets import Dataset, load_dataset
 from unsloth import FastLanguageModel
 
 from base_train_config import TrainingConfig
 from trainer import sft_train
-from finetune_util import load_jsonl, load_model_and_tokenizer
+from finetune_util import load_dataset_from_jsonl, load_model_and_tokenizer
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -34,24 +34,15 @@ def train(training_cfg):
         loftq_config=None,
         use_dora=False,
     )
-    rows = load_jsonl(training_cfg.training_file)
-
-    if training_cfg.loss == "sft":
-        dataset = Dataset.from_list([dict(messages=r['messages']) for r in rows])
-    else:
-        dataset = Dataset.from_list(rows)
+    dataset = load_dataset_from_jsonl(training_cfg.training_file, training_cfg.loss)
+    print(f"Loaded {len(dataset)} samples from {training_cfg.training_file}")
     
     if training_cfg.test_file:
-        test_rows = load_jsonl(training_cfg.test_file)
-        if training_cfg.loss in ["orpo", "dpo"]:
-            test_dataset = Dataset.from_list(test_rows)
-        else:
-            test_dataset = Dataset.from_list([dict(messages=r['messages']) for r in test_rows])
+        test_dataset = load_dataset_from_jsonl(training_cfg.test_file, training_cfg.loss)
         split = dataset.train_test_split(test_size=0.1, seed=training_cfg.seed)
         dataset = split["train"]
         # this is so our train set is the same when we have a different test set!
         dont_use_me_dataset = split["test"]
-
     else:
         # Split 10% of train data for testing when no test set provided
         # Use seed from training config to make the split deterministic
