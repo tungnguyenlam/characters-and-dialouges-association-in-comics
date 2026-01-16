@@ -10,7 +10,7 @@ class TrainingConfig(BaseModel):
 
     # Required model and data paths
     model: str = Field(..., description="Hugging Face model ID")
-    training_file: str = Field(..., description="File ID of the training dataset")
+    training_file: Union[str, List[str]] = Field(..., description="File ID(s) of the training dataset(s). Can be a single path or a list of paths.")
     test_file: Optional[str] = Field(None, description="File ID of the test dataset")
 
     # Output model
@@ -75,14 +75,15 @@ class TrainingConfig(BaseModel):
         loss = values.get('loss', 'orpo')
         training_file = values.get('training_file')
 
-        if os.path.exists(training_file):
-            return values
-
-        # if loss == 'sft' and not training_file.startswith('conversations'):
-        #     raise ValueError(f"For SFT training, dataset filename must start with 'conversations', got: {training_file}")
-
-        if loss in ['dpo', 'orpo'] and not training_file.startswith('preference'):
-            raise ValueError(f"For DPO/ORPO training, dataset filename must start with 'preference', got: {training_file}")
+        # Handle both single file and list of files
+        files = [training_file] if isinstance(training_file, str) else training_file
+        
+        for f in files:
+            if os.path.exists(f):
+                continue  # File exists, skip prefix validation
+            
+            if loss in ['dpo', 'orpo'] and not f.startswith('preference'):
+                raise ValueError(f"For DPO/ORPO training, dataset filename must start with 'preference', got: {f}")
 
         return values
 

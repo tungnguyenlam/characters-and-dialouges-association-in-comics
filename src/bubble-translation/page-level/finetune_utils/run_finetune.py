@@ -3,7 +3,7 @@ import os
 import sys
 
 import backoff
-from datasets import Dataset
+from datasets import Dataset, concatenate_datasets
 from unsloth import FastLanguageModel
 
 from base_train_config import TrainingConfig
@@ -34,12 +34,25 @@ def train(training_cfg):
         loftq_config=None,
         use_dora=False,
     )
-    rows = load_jsonl(training_cfg.training_file)
+    # Load training file(s) - handle both single file and list of files
+    training_files = training_cfg.training_file
+    if isinstance(training_files, str):
+        training_files = [training_files]
+    
+    all_rows = []
+    for tf in training_files:
+        rows = load_jsonl(tf)
+        print(f"Loaded {len(rows)} samples from {tf}")
+        all_rows.extend(rows)
+    print(f"Total samples after merging: {len(all_rows)}")
 
     if training_cfg.loss == "sft":
-        dataset = Dataset.from_list([dict(messages=r['messages']) for r in rows])
+        dataset = Dataset.from_list([dict(messages=r['messages']) for r in all_rows])
     else:
-        dataset = Dataset.from_list(rows)
+        dataset = Dataset.from_list(all_rows)
+    
+    # Shuffle the merged dataset
+    dataset = dataset.shuffle(seed=training_cfg.seed)
     
     if training_cfg.test_file:
         test_rows = load_jsonl(training_cfg.test_file)
