@@ -3,7 +3,7 @@ import torch
 from unsloth import is_bfloat16_supported
 from unsloth.chat_templates import train_on_responses_only
 from datasets import Dataset
-from transformers import TrainingArguments, Trainer
+from transformers import TrainingArguments, Trainer, EarlyStoppingCallback
 from trl import SFTTrainer, SFTConfig
 from transformers import DataCollatorForSeq2Seq
 
@@ -183,9 +183,12 @@ def sft_train(training_cfg, dataset, model, tokenizer, test_dataset, **kwargs):
             eval_steps=training_cfg.evaluation_steps,
             do_eval=True,
             eval_strategy="steps",
+            load_best_model_at_end=True,
+            metric_for_best_model="eval_loss",
+            greater_is_better=False,
             **kwargs,
         ),
-        callbacks=[],
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=getattr(training_cfg, 'early_stopping_patience', 5))],
         eval_dataset=test_dataset,
     )
 

@@ -69,6 +69,7 @@ class TrainingConfig(BaseModel):
     save_steps: int = Field(5000, description="Save checkpoint every X steps")
     output_dir: str = Field("./tmp", description="Output directory for training checkpoints")
     train_on_responses_only: bool = Field(False, description="Whether to train on responses only")
+    early_stopping_patience: int = Field(5, description="Stop training after N evaluations without improvement")
 
     @model_validator(mode="before")
     def validate_training_file_prefixes(cls, values):
