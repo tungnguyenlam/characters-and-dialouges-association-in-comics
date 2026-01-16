@@ -1,6 +1,7 @@
 import os
 import sys
 from torch.utils.data import Dataset
+from datasets import load_dataset
 
 cwd = os.getcwd()
 if not cwd.endswith("group-project-b3"):
