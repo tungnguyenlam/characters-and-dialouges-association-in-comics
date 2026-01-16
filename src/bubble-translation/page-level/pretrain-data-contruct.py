@@ -86,5 +86,6 @@ from tqdm.auto import tqdm
 for item in tqdm(concatenated_dataset):
     ja = item['src_text']
     en = item['tgt_text']
-    json.dump(format_opus_to_manga_style(ja, en), open(SAVE_FILE, "a"))
+    with open(SAVE_FILE, "a") as f:
+        f.write(json.dumps(format_opus_to_manga_style(ja, en)) + '\n')
     
