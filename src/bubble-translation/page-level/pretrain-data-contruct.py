@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(cwd, "..", ".env"))
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-SAVE_DIR = os.path.join(cwd, "data", "translation", "pretrain")
+SAVE_DIR = os.path.join(cwd, "data", "translation", "pretrain", "data")
 SAVE_FILE = os.path.join(SAVE_DIR, "pretrain-data.jsonl")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
