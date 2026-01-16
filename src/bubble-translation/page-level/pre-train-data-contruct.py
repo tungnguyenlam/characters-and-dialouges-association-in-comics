@@ -12,7 +12,7 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 
 # Create data loader for JESC 2019
 
-jesc_path = os.path.join(cwd, "data", "jesc", "dataset.csv")
+jesc_path = os.path.join(cwd, "data", "jesc-2019", "dataset.csv")
 
 import pandas as pd
 
