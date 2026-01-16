@@ -24,6 +24,15 @@ else
     echo "./data/MangaSegmentation/jsons_processed already exists, skipping download."
 fi
 
+if [[ ! -d ./data/jesc-2019 ]]; then
+    mkdir -p ./data/jesc-2019
+    gdown --fuzzy "https://drive.google.com/file/d/1_N--o0k14rjb5aQKZr12Isf2YL9DNr2f/view?usp=sharing" -O ./data/jesc-2019/dataset.csv
+else
+    echo "./data/jesc-2019 already exists, skipping download."
+fi
+
+
+
 if [ ! -d ./data/Manga109_released_2023_12_07 ]; then
     hf download hal-utokyo/Manga109 --repo-type dataset --include Manga109_released_2023_12_07.zip --local-dir ./data --token $HF_TOKEN
     unzip ./data/Manga109_released_2023_12_07.zip -d ./data
