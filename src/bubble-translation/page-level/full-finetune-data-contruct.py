@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(cwd, "..", ".env"))
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-SAVE_DIR = os.path.join(cwd, "data", "translation", "pre-train")
-SAVE_FILE = os.path.join(SAVE_DIR, "pre-train-data.json")
+SAVE_DIR = os.path.join(cwd, "data", "translation", "full-finetune")
+SAVE_FILE = os.path.join(SAVE_DIR, "full-finetune-data.jsonl")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # Create data loader for JESC 2019
