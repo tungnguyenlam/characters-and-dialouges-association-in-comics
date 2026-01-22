@@ -613,7 +613,8 @@ def compute_final_metrics(all_results: List[Dict], device: str = 'cpu') -> Dict[
                     comet_output = comet_model.predict(
                         comet_data,
                         batch_size=8,
-                        gpus=1 if device == 'cuda' else 0  # Use GPU only for CUDA
+                        gpus=1 if device == 'cuda' else 0,  # Use GPU only for CUDA
+                        num_workers=0
                     )
                     # Use system_score which is the standard aggregate
                     metrics['trans_comet'] = comet_output.system_score
