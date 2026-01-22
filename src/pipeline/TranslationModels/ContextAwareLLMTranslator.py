@@ -17,13 +17,19 @@ class ContextAwareLLMTranslator(LLMTranslator):
         verbose: bool = False,
         context_window: int = 3,
         system_prompt: str = "",
-        batch_size: int = 1
+        batch_size: int = 1,
+        retry_empty: bool = True,
+        retry_temperature: float = 0.7,
+        max_retries: int = 2
     ):
         super().__init__(model_name=model_name, device=device, verbose=verbose)
         self.context_window = context_window
         self.system_prompt = system_prompt  # No system prompt needed (learned during fine-tuning)
         self.skip_gating = True  # Skip Japanese gating, handle all text
         self.batch_size = batch_size  # Number of items to process per batch
+        self.retry_empty = retry_empty  # Retry empty outputs with sampling
+        self.retry_temperature = retry_temperature  # Temperature for retry attempts
+        self.max_retries = max_retries  # Max retry attempts per empty output
     
     def _build_user_content(
         self,
@@ -94,6 +100,24 @@ class ContextAwareLLMTranslator(LLMTranslator):
             add_generation_prompt=True
         )
     
+    def _retry_single_with_sampling(self, prompt: str) -> str:
+        """Retry a single prompt with sampling enabled."""
+        # Save original settings
+        original_do_sample = self.do_sample
+        original_temperature = self.temperature
+        
+        # Enable sampling for retry
+        self.do_sample = True
+        self.temperature = self.retry_temperature
+        
+        try:
+            result = self._generate([prompt])
+            return result[0] if result else ""
+        finally:
+            # Restore original settings
+            self.do_sample = original_do_sample
+            self.temperature = original_temperature
+    
     def _inference(
         self,
         texts: List[str],
@@ -118,7 +142,7 @@ class ContextAwareLLMTranslator(LLMTranslator):
         if not texts:
             return []
         
-        # Format prompts for each bubble
+        # Format prompts for each bubble (context preserved in each prompt)
         formatted_prompts = [
             self._format_chat_prompt(texts, i, page_description, speakers)
             for i in range(len(texts))
@@ -135,6 +159,39 @@ class ContextAwareLLMTranslator(LLMTranslator):
             
             batch_translations = self._generate(batch_prompts)
             all_translations.extend(batch_translations)
+        
+        # Retry empty outputs with sampling if enabled
+        if self.retry_empty:
+            empty_indices = [i for i, t in enumerate(all_translations) if not t.strip()]
+            
+            if empty_indices and self.verbose:
+                self._log(f"Found {len(empty_indices)} empty outputs, processing...")
+            
+            for idx in empty_indices:
+                source_text = texts[idx]
+                
+                # Check if source contains Japanese - if not, fallback to source
+                if not self.contains_japanese(source_text):
+                    all_translations[idx] = source_text
+                    if self.verbose:
+                        self._log(f"  Item {idx + 1}: No Japanese, using source as fallback")
+                    continue
+                
+                # Source has Japanese - retry with sampling
+                if self.verbose:
+                    self._log(f"  Item {idx + 1}: Retrying with sampling (temp={self.retry_temperature})...")
+                
+                for attempt in range(self.max_retries):
+                    retry_result = self._retry_single_with_sampling(formatted_prompts[idx])
+                    if retry_result.strip():
+                        all_translations[idx] = retry_result
+                        if self.verbose:
+                            self._log(f"    Retry successful on attempt {attempt + 1}")
+                        break
+                else:
+                    # All retries failed
+                    if self.verbose:
+                        self._log(f"    Retry failed after {self.max_retries} attempts")
         
         return all_translations
     
