@@ -11,6 +11,8 @@ from trainer import sft_train
 from finetune_util import load_dataset_from_jsonl, load_model_and_tokenizer
 from dotenv import load_dotenv
 
+import weave
+
 # Load environment variables from .env file
 load_dotenv()
 
