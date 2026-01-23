@@ -83,9 +83,18 @@ concatenated_dataset = concatenate_datasets([jesc_dataset, flores_ds, ntrex_ds, 
 import json
 from tqdm.auto import tqdm
 
-for item in tqdm(concatenated_dataset):
-    ja = item['src_text']
-    en = item['tgt_text']
-    with open(SAVE_FILE, "a") as f:
-        f.write(json.dumps(format_opus_to_manga_style(ja, en)) + '\n')
+BATCH_SIZE = 50000  # Larger batches for 2GB dataset
+
+with open(SAVE_FILE, "w", buffering=16*1024*1024) as f:  # 16MB buffer
+    batch = []
+    for item in tqdm(concatenated_dataset):
+        ja = item['src_text']
+        en = item['tgt_text']
+        batch.append(json.dumps(format_opus_to_manga_style(ja, en)))
+        
+        if len(batch) >= BATCH_SIZE:
+            f.write('\n'.join(batch) + '\n')
+            batch = []
     
+    if batch:
+        f.write('\n'.join(batch) + '\n')
