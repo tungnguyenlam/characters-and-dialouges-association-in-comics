@@ -8,6 +8,7 @@ from scipy.stats import kendalltau
 import torch
 from torchmetrics.text import CharErrorRate, WordErrorRate, BLEUScore, SacreBLEUScore, CHRFScore
 from torchmetrics.text.bert import BERTScore
+from torch.utils.data import Dataset
 # Import COMET if available
 try:
     from comet import download_model, load_from_checkpoint
