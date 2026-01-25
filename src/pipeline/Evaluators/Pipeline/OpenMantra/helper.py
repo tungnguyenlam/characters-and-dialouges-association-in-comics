@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import kendalltau
 import torch
-from torchmetrics.text import CharErrorRate, WordErrorRate, BLEUScore, CHRFScore
+from torchmetrics.text import CharErrorRate, WordErrorRate, BLEUScore, SacreBLEUScore, CHRFScore
 from torchmetrics.text.bert import BERTScore
 # Import COMET if available
 try:
@@ -479,6 +479,12 @@ def compute_final_metrics(all_results: List[Dict], device: str = 'cpu') -> Dict[
     coverages = []
     utilizations = []
     
+    # Detection statistics
+    total_gt_texts = 0
+    total_matched_pairs = 0
+    total_missed_detections = 0
+    total_false_positives = 0
+    
     for result in all_results:
         all_ocr_pred.extend(result['ocr_predictions'])
         all_ocr_expected.extend(result['ocr_expected'])
@@ -492,6 +498,13 @@ def compute_final_metrics(all_results: List[Dict], device: str = 'cpu') -> Dict[
         
         coverages.append(result['coverage']['gt_coverage'])
         utilizations.append(result['coverage']['bubble_utilization'])
+        
+        # Accumulate detection statistics
+        coverage = result['coverage']
+        total_gt_texts += coverage['num_gt_texts']
+        total_matched_pairs += coverage['num_matched_gt']
+        total_missed_detections += coverage['num_unmatched_gt']
+        total_false_positives += coverage['num_empty_bubbles']
     
     metrics = {}
     
@@ -507,17 +520,21 @@ def compute_final_metrics(all_results: List[Dict], device: str = 'cpu') -> Dict[
         cer_metric = CharErrorRate()
         wer_metric = WordErrorRate()
         bleu_metric = BLEUScore()
-        chrf_metric = CHRFScore(n_char_order=6, n_word_order=2)
+        sacrebleu_metric = SacreBLEUScore()
+        chrf_metric = CHRFScore(n_char_order=6, n_word_order=0)  # chrF
+        chrf_pp_metric = CHRFScore(n_char_order=6, n_word_order=2)  # chrF++
         
         bleu_refs = [[ref] for ref in all_trans_expected]
         
         metrics['trans_cer'] = cer_metric(all_trans_pred, all_trans_expected).item()
         metrics['trans_wer'] = wer_metric(all_trans_pred, all_trans_expected).item()
         metrics['trans_bleu'] = bleu_metric(all_trans_pred, bleu_refs).item()
-        metrics['trans_chrf_pp'] = chrf_metric(all_trans_pred, bleu_refs).item()
+        metrics['trans_sacrebleu'] = sacrebleu_metric(all_trans_pred, bleu_refs).item()
+        metrics['trans_chrf'] = chrf_metric(all_trans_pred, bleu_refs).item()
+        metrics['trans_chrf_pp'] = chrf_pp_metric(all_trans_pred, bleu_refs).item()
         
         # Cleanup string metrics
-        del cer_metric, wer_metric, bleu_metric, chrf_metric
+        del cer_metric, wer_metric, bleu_metric, sacrebleu_metric, chrf_metric, chrf_pp_metric
         gc.collect()
 
         # BERTScore - with improved error handling
@@ -641,6 +658,8 @@ def compute_final_metrics(all_results: List[Dict], device: str = 'cpu') -> Dict[
         metrics['trans_cer'] = 1.0
         metrics['trans_wer'] = 1.0
         metrics['trans_bleu'] = 0.0
+        metrics['trans_sacrebleu'] = 0.0
+        metrics['trans_chrf'] = 0.0
         metrics['trans_chrf_pp'] = 0.0
         metrics['trans_bertscore_f1'] = 0.0
         metrics['trans_bertscore_precision'] = 0.0
@@ -655,9 +674,93 @@ def compute_final_metrics(all_results: List[Dict], device: str = 'cpu') -> Dict[
     metrics['gt_coverage_mean'] = np.mean(coverages) if coverages else 0.0
     metrics['bubble_utilization_mean'] = np.mean(utilizations) if utilizations else 0.0
     
+    # Detection Statistics (counts and percentages)
+    metrics['detection_total_gt_texts'] = total_gt_texts
+    metrics['detection_matched_pairs_count'] = total_matched_pairs
+    metrics['detection_matched_pairs_pct'] = (total_matched_pairs / total_gt_texts * 100) if total_gt_texts > 0 else 0.0
+    metrics['detection_missed_count'] = total_missed_detections
+    metrics['detection_missed_pct'] = (total_missed_detections / total_gt_texts * 100) if total_gt_texts > 0 else 0.0
+    metrics['detection_false_positive_count'] = total_false_positives
+    # Note: False positive percentage is relative to total GT texts for consistency
+    metrics['detection_false_positive_pct'] = (total_false_positives / total_gt_texts * 100) if total_gt_texts > 0 else 0.0
+    
     # Counts
     metrics['num_pages'] = len(all_results)
     metrics['num_ocr_samples'] = len(all_ocr_pred)
     metrics['num_trans_samples'] = len(all_trans_pred)
     
     return metrics
+
+class OpenMantraDataset(Dataset):
+    """Dataset class for OpenMantra manga translation dataset."""
+    
+    def __init__(
+        self,
+        root_dir: str,
+        annotation_file: str = "annotation.json",
+        transform: Optional[Any] = None,
+        language: str = "ja",
+        book_titles: Optional[List[str]] = None
+    ):
+        self.root_dir = Path(root_dir)
+        self.transform = transform
+        self.language = language
+        
+        annotation_path = self.root_dir / annotation_file
+        with open(annotation_path, 'r', encoding='utf-8') as f:
+            self.annotations = json.load(f)
+        
+        if book_titles is not None:
+            self.annotations = [
+                book for book in self.annotations 
+                if book['book_title'] in book_titles
+            ]
+        
+        self.samples: List[Tuple[Dict, Dict]] = []
+        for book in self.annotations:
+            book_title = book['book_title']
+            for page in book['pages']:
+                self.samples.append(({'book_title': book_title}, page))
+    
+    def __len__(self) -> int:
+        return len(self.samples)
+    
+    def __getitem__(self, idx: int) -> Tuple[Image.Image, Dict, List[Dict]]:
+        book_info, page_info = self.samples[idx]
+        
+        image_paths = page_info.get('image_paths', {})
+        relative_image_path = image_paths.get(self.language, '')
+        image_path = self.root_dir / relative_image_path
+        
+        image = Image.open(image_path).convert('RGB')
+        image_size = image.size
+        
+        image_info = {
+            'book_title': book_info['book_title'],
+            'page_index': page_info.get('page_index', -1),
+            'image_path': str(image_path),
+            'image_size': image_size,
+            'frames': page_info.get('frame', [])
+        }
+        
+        raw_bubbles = page_info.get('text', [])
+        bubbles = []
+        for bubble in raw_bubbles:
+            converted_bubble = {
+                'xmin': bubble['x'],
+                'ymin': bubble['y'],
+                'xmax': bubble['x'] + bubble['w'],
+                'ymax': bubble['y'] + bubble['h'],
+                'text_ja': bubble.get('text_ja', ''),
+                'text_en': bubble.get('text_en', ''),
+                'text_zh': bubble.get('text_zh', '')
+            }
+            bubbles.append(converted_bubble)
+        
+        if self.transform is not None:
+            image = self.transform(image)
+        
+        return image, image_info, bubbles
+    
+    def get_book_titles(self) -> List[str]:
+        return list(set(book['book_title'] for book in self.annotations))
