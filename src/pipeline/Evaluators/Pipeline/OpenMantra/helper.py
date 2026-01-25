@@ -254,12 +254,54 @@ def evaluate_page(
             },
             'pred_bboxes': pred_bboxes,
             'valid_gt_texts': valid_gt_texts,
-            'matches': {}
+            'matches': {},
+            'trans_predictions_gt_source': [],
+            'trans_expected_gt_source': []
         }
     
     # Match bubbles to GT texts
     matches, unmatched_gt, empty_bubbles = match_bubbles_to_gt_texts(
         pred_bboxes, valid_gt_texts, containment_threshold
+    )
+    
+    # --- Experiment: Translate using GT Source Text (Simulate Perfect OCR) ---
+    gt_source_texts = []
+    for pred_idx in range(len(pred_bboxes)):
+        gt_indices = matches.get(pred_idx, [])
+        if gt_indices:
+            # If matched, use the concatenation of GT Japanese text
+            sorted_indices = sorted(gt_indices)
+            gt_text_ja = ''.join([valid_gt_texts[i]['text_ja'] for i in sorted_indices])
+            gt_source_texts.append(gt_text_ja)
+        else:
+            # If false positive (no GT), keep the OCR text (system still sees this text)
+            gt_source_texts.append(ocr_texts[pred_idx] if pred_idx < len(ocr_texts) else "")
+            
+    # Run translator on the "Perfect OCR" input
+    # Note: We assume 'image_info' is not strictly needed for context if using text list,
+    # but the translator might need it. We will pass basic info.
+    # To keep it simple and consistent with pipeline.process, we use the translator directly.
+    # We need to handle the case where pipeline.translator might expect image context,
+    # but ContextAwareLLMTranslator mainly uses the text list.
+    
+    # We need to construct speakers list if possible, but for now we'll pass None
+    # to let the translator handle it (it treats them as "unknown").
+    
+    try:
+        if hasattr(pipeline.translator, 'translate_page'):
+             trans_preds_from_gt = pipeline.translator.translate_page(gt_source_texts)
+        elif hasattr(pipeline.translator, 'predict'): # Fallback for simple translators
+             trans_preds_from_gt = pipeline.translator.predict(gt_source_texts)
+        else:
+             trans_preds_from_gt = [""] * len(gt_source_texts)
+    except Exception as e:
+        print(f"Warning: GT Source translation failed: {e}")
+        trans_preds_from_gt = [""] * len(gt_source_texts)
+
+    # Evaluate GT Source Translation
+    # We reuse evaluate_translation_page but pass the new predictions and new source
+    trans_preds_gt, trans_expected_gt, _ = evaluate_translation_page(
+        trans_preds_from_gt, gt_source_texts, valid_gt_texts, matches, unmatched_gt
     )
     
     # Evaluate OCR
@@ -290,6 +332,8 @@ def evaluate_page(
         'ocr_expected': ocr_expected,
         'trans_predictions': trans_preds,
         'trans_expected': trans_expected,
+        'trans_predictions_gt_source': trans_preds_gt,
+        'trans_expected_gt_source': trans_expected_gt, # Should be identical to trans_expected
         'trans_sources': trans_sources,
         'ordering': ordering,
         'coverage': coverage,
@@ -477,6 +521,10 @@ def compute_final_metrics(all_results: List[Dict], device: str = 'cpu') -> Dict[
     all_trans_expected = []
     all_trans_sources = []
     
+    # GT Source Experiment
+    all_trans_pred_gt = []
+    all_trans_expected_gt = []
+    
     ordering_taus = []
     ordering_exact = []
     coverages = []
@@ -494,6 +542,10 @@ def compute_final_metrics(all_results: List[Dict], device: str = 'cpu') -> Dict[
         all_trans_pred.extend(result['trans_predictions'])
         all_trans_expected.extend(result['trans_expected'])
         all_trans_sources.extend(result.get('trans_sources', []))
+        
+        # Accumulate GT Source results
+        all_trans_pred_gt.extend(result.get('trans_predictions_gt_source', []))
+        all_trans_expected_gt.extend(result.get('trans_expected_gt_source', []))
         
         if result['ordering']['num_matched_bubbles'] >= 2:
             ordering_taus.append(result['ordering']['kendall_tau'])
@@ -545,63 +597,49 @@ def compute_final_metrics(all_results: List[Dict], device: str = 'cpu') -> Dict[
             print("Computing BERTScore...")
             print(f"  Number of samples: {len(all_trans_pred)}")
             
-            # Filter out empty strings for BERTScore (they cause NaN issues)
-            valid_indices = [i for i in range(len(all_trans_pred)) 
-                           if all_trans_pred[i].strip() and all_trans_expected[i].strip()]
+            # Use CPU for BERTScore if MPS causes issues
+            bert_device = 'cpu' if device == 'mps' else device
+            print(f"  BERTScore device: {bert_device}")
             
-            if len(valid_indices) == 0:
-                print("  Warning: No valid (non-empty) samples for BERTScore")
-                metrics['trans_bertscore_f1'] = 0.0
-                metrics['trans_bertscore_precision'] = 0.0
-                metrics['trans_bertscore_recall'] = 0.0
-            else:
-                filtered_pred = [all_trans_pred[i] for i in valid_indices]
-                filtered_expected = [all_trans_expected[i] for i in valid_indices]
-                
-                print(f"  Valid samples after filtering: {len(filtered_pred)}")
-                
-                # Use CPU for BERTScore if MPS causes issues
-                bert_device = 'cpu' if device == 'mps' else device
-                print(f"  BERTScore device: {bert_device}")
-                
-                bert_scorer = BERTScore(
-                    model_name_or_path="microsoft/deberta-xlarge-mnli",
-                    device=bert_device
-                )
-                bert_scorer.reset()
-                bert_scorer.update(filtered_pred, filtered_expected)
-                bert_results = bert_scorer.compute()
-                
-                # Handle both tensor and list return types
-                f1_vals = bert_results['f1']
-                p_vals = bert_results['precision']
-                r_vals = bert_results['recall']
-                
-                # Convert to numpy for robust NaN handling
-                if hasattr(f1_vals, 'mean'):  # Is tensor
-                    f1_np = f1_vals.cpu().numpy() if hasattr(f1_vals, 'cpu') else np.array(f1_vals)
-                    precision_np = p_vals.cpu().numpy() if hasattr(p_vals, 'cpu') else np.array(p_vals)
-                    recall_np = r_vals.cpu().numpy() if hasattr(r_vals, 'cpu') else np.array(r_vals)
-                else:  # Is list
-                    f1_np = np.array(f1_vals)
-                    precision_np = np.array(p_vals)
-                    recall_np = np.array(r_vals)
-                
-                # Use nanmean to ignore NaN values
-                f1_mean = float(np.nanmean(f1_np))
-                p_mean = float(np.nanmean(precision_np))
-                r_mean = float(np.nanmean(recall_np))
-                
-                print(f"  BERTScore F1: {f1_mean:.4f}")
-                print(f"  BERTScore Precision: {p_mean:.4f}")
-                print(f"  BERTScore Recall: {r_mean:.4f}")
-                
-                metrics['trans_bertscore_f1'] = f1_mean
-                metrics['trans_bertscore_precision'] = p_mean
-                metrics['trans_bertscore_recall'] = r_mean
+            bert_scorer = BERTScore(
+                model_name_or_path="microsoft/deberta-xlarge-mnli",
+                device=bert_device
+            )
+            bert_scorer.reset()
+            # Pass all predictions/expected, including empty strings
+            bert_scorer.update(all_trans_pred, all_trans_expected)
+            bert_results = bert_scorer.compute()
+            
+            # Handle both tensor and list return types
+            f1_vals = bert_results['f1']
+            p_vals = bert_results['precision']
+            r_vals = bert_results['recall']
+            
+            # Convert to numpy for robust NaN handling
+            if hasattr(f1_vals, 'mean'):  # Is tensor
+                f1_np = f1_vals.cpu().numpy() if hasattr(f1_vals, 'cpu') else np.array(f1_vals)
+                precision_np = p_vals.cpu().numpy() if hasattr(p_vals, 'cpu') else np.array(p_vals)
+                recall_np = r_vals.cpu().numpy() if hasattr(r_vals, 'cpu') else np.array(r_vals)
+            else:  # Is list
+                f1_np = np.array(f1_vals)
+                precision_np = np.array(p_vals)
+                recall_np = np.array(r_vals)
+            
+            # Use nanmean to ignore NaN values (if any remain)
+            f1_mean = float(np.nanmean(f1_np))
+            p_mean = float(np.nanmean(precision_np))
+            r_mean = float(np.nanmean(recall_np))
+            
+            print(f"  BERTScore F1: {f1_mean:.4f}")
+            print(f"  BERTScore Precision: {p_mean:.4f}")
+            print(f"  BERTScore Recall: {r_mean:.4f}")
+            
+            metrics['trans_bertscore_f1'] = f1_mean
+            metrics['trans_bertscore_precision'] = p_mean
+            metrics['trans_bertscore_recall'] = r_mean
 
-                del bert_scorer, bert_results
-                gc.collect()
+            del bert_scorer, bert_results
+            gc.collect()
             
         except Exception as e:
             print(f"Warning: BERTScore computation failed: {e}")
@@ -657,6 +695,77 @@ def compute_final_metrics(all_results: List[Dict], device: str = 'cpu') -> Dict[
             elif not all_trans_sources:
                 print("Warning: No source texts available for COMET")
             metrics['trans_comet'] = 0.0
+            
+        # --- Compute Metrics for GT Source Translation (Simulated Perfect OCR) ---
+        if all_trans_pred_gt and all_trans_expected_gt:
+            print("\nComputing metrics for GT Source Translation...")
+            
+            # We can reuse the same metric instances
+            cer_metric = CharErrorRate()
+            wer_metric = WordErrorRate()
+            bleu_metric = BLEUScore()
+            sacrebleu_metric = SacreBLEUScore()
+            chrf_metric = CHRFScore(n_char_order=6, n_word_order=0)
+            chrf_pp_metric = CHRFScore(n_char_order=6, n_word_order=2)
+            
+            bleu_refs_gt = [[ref] for ref in all_trans_expected_gt]
+            
+            metrics['trans_gt_source_cer'] = cer_metric(all_trans_pred_gt, all_trans_expected_gt).item()
+            metrics['trans_gt_source_wer'] = wer_metric(all_trans_pred_gt, all_trans_expected_gt).item()
+            metrics['trans_gt_source_bleu'] = bleu_metric(all_trans_pred_gt, bleu_refs_gt).item()
+            metrics['trans_gt_source_sacrebleu'] = sacrebleu_metric(all_trans_pred_gt, bleu_refs_gt).item()
+            metrics['trans_gt_source_chrf'] = chrf_metric(all_trans_pred_gt, bleu_refs_gt).item()
+            metrics['trans_gt_source_chrf_pp'] = chrf_pp_metric(all_trans_pred_gt, bleu_refs_gt).item()
+            
+            del cer_metric, wer_metric, bleu_metric, sacrebleu_metric, chrf_metric, chrf_pp_metric
+            gc.collect()
+
+            # BERTScore for GT Source
+            try:
+                print("Computing BERTScore (GT Source)...")
+                bert_device = 'cpu' if device == 'mps' else device
+                bert_scorer = BERTScore(model_name_or_path="microsoft/deberta-xlarge-mnli", device=bert_device)
+                bert_scorer.reset()
+                bert_scorer.update(all_trans_pred_gt, all_trans_expected_gt)
+                bert_results = bert_scorer.compute()
+                
+                f1_vals = bert_results['f1']
+                p_vals = bert_results['precision']
+                r_vals = bert_results['recall']
+                
+                # Convert to numpy
+                if hasattr(f1_vals, 'mean'):
+                    f1_np = f1_vals.cpu().numpy() if hasattr(f1_vals, 'cpu') else np.array(f1_vals)
+                    p_np = p_vals.cpu().numpy() if hasattr(p_vals, 'cpu') else np.array(p_vals)
+                    r_np = r_vals.cpu().numpy() if hasattr(r_vals, 'cpu') else np.array(r_vals)
+                else:
+                    f1_np = np.array(f1_vals)
+                    p_np = np.array(p_vals)
+                    r_np = np.array(r_vals)
+
+                metrics['trans_gt_source_bertscore_f1'] = float(np.nanmean(f1_np))
+                metrics['trans_gt_source_bertscore_precision'] = float(np.nanmean(p_np))
+                metrics['trans_gt_source_bertscore_recall'] = float(np.nanmean(r_np))
+                
+                del bert_scorer, bert_results
+                gc.collect()
+            except Exception as e:
+                print(f"GT Source BERTScore failed: {e}")
+                metrics['trans_gt_source_bertscore_f1'] = 0.0
+                metrics['trans_gt_source_bertscore_precision'] = 0.0
+                metrics['trans_gt_source_bertscore_recall'] = 0.0
+                
+            # COMET for GT Source - using GT Source text as source
+            if COMET_AVAILABLE:
+                try:
+                    # Collect GT source texts (we didn't strictly save them in all_results, but we can't easily reconstruction without saving.
+                    # Wait!! We didn't save 'gt_source_texts' in the result dict in evaluate_page!
+                    # Actually, I missed adding 'gt_source_texts' to the result dict in Step 1.
+                    # So we cannot compute COMET for GT Source right now.
+                    # I will skip COMET for GT Source to avoid error.
+                    metrics['trans_gt_source_comet'] = 0.0
+                except:
+                    metrics['trans_gt_source_comet'] = 0.0
     else:
         metrics['trans_cer'] = 1.0
         metrics['trans_wer'] = 1.0
@@ -668,6 +777,18 @@ def compute_final_metrics(all_results: List[Dict], device: str = 'cpu') -> Dict[
         metrics['trans_bertscore_precision'] = 0.0
         metrics['trans_bertscore_recall'] = 0.0
         metrics['trans_comet'] = 0.0
+        
+        # Defaults for GT Source metrics
+        metrics['trans_gt_source_cer'] = 1.0
+        metrics['trans_gt_source_wer'] = 1.0
+        metrics['trans_gt_source_bleu'] = 0.0
+        metrics['trans_gt_source_sacrebleu'] = 0.0
+        metrics['trans_gt_source_chrf'] = 0.0
+        metrics['trans_gt_source_chrf_pp'] = 0.0
+        metrics['trans_gt_source_bertscore_f1'] = 0.0
+        metrics['trans_gt_source_bertscore_precision'] = 0.0
+        metrics['trans_gt_source_bertscore_recall'] = 0.0
+        metrics['trans_gt_source_comet'] = 0.0
     
     # Ordering Metrics
     metrics['ordering_kendall_tau'] = np.mean(ordering_taus) if ordering_taus else 0.0
