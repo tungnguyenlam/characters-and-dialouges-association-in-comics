@@ -15,7 +15,8 @@ def split_connected_bubbles(
     image_shape: Tuple[int, int],
     min_defect_depth: float = 13,
     max_angle_deg: float = 170,
-    min_dist_between_defects: float = 20
+    min_dist_between_defects: float = 20,
+    max_split_depth: int = 2
 ) -> Tuple[List[List[float]], List[np.ndarray], List[float]]:
     """
     Split connected bubbles in masks.
@@ -45,9 +46,9 @@ def split_connected_bubbles(
         
         initial_mask = (mask * 255).astype(np.uint8) if mask.max() <= 1 else mask.astype(np.uint8)
 
-        # Recursive split
+        # Recursive split with depth limit
         result_masks = _split_recursive(
-            initial_mask, min_defect_depth, max_angle_deg, min_dist_between_defects
+            initial_mask, min_defect_depth, max_angle_deg, min_dist_between_defects, max_split_depth
         )
 
         # Extract bbox for each split mask
@@ -179,8 +180,12 @@ def _attempt_split_once(bubble_mask, min_defect_depth, max_angle_deg, min_dist_b
     return [bubble_mask]
 
 
-def _split_recursive(bubble_mask, min_defect_depth, max_angle_deg, min_dist_between_defects):
-    """Recursive wrapper."""
+def _split_recursive(bubble_mask, min_defect_depth, max_angle_deg, min_dist_between_defects, max_split_depth, depth=0):
+    """Recursive wrapper with depth limit."""
+    # Stop recursion if max depth reached
+    if depth >= max_split_depth:
+        return [bubble_mask]
+    
     initial_results = _attempt_split_once(
         bubble_mask, min_defect_depth, max_angle_deg, min_dist_between_defects
     )
@@ -190,7 +195,7 @@ def _split_recursive(bubble_mask, min_defect_depth, max_angle_deg, min_dist_betw
     final_bubbles = []
     for sub_mask in initial_results:
         sub_results = _split_recursive(
-            sub_mask, min_defect_depth, max_angle_deg, min_dist_between_defects
+            sub_mask, min_defect_depth, max_angle_deg, min_dist_between_defects, max_split_depth, depth + 1
         )
         final_bubbles.extend(sub_results)
     return final_bubbles
@@ -205,12 +210,14 @@ class BubbleSegmenterWithSplit(YoloBubbleSeg):
         plot: bool = False,
         min_defect_depth: float = 13,
         max_angle_deg: float = 170,
-        min_dist_between_defects: float = 20
+        min_dist_between_defects: float = 20,
+        max_split_depth: int = 2
     ):
         super().__init__(model_path, variant, device, verbose, plot)
         self.min_defect_depth = min_defect_depth
         self.max_angle_deg = max_angle_deg
         self.min_dist_between_defects = min_dist_between_defects
+        self.max_split_depth = max_split_depth
         self._image_shape = None
 
     def preprocess(self, image):
@@ -218,12 +225,13 @@ class BubbleSegmenterWithSplit(YoloBubbleSeg):
         return image
 
     def postprocess(self, outputs):
-        """Apply bubble splitting."""
+        """Apply bubble splitting with depth limit."""
         
         bboxes, masks, confs = outputs
         return split_connected_bubbles(
             masks, confs, self._image_shape,
             self.min_defect_depth,
             self.max_angle_deg,
-            self.min_dist_between_defects
+            self.min_dist_between_defects,
+            self.max_split_depth
         )

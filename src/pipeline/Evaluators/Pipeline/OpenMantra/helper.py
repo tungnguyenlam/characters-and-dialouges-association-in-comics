@@ -361,25 +361,24 @@ def visualize_matching(
             (gt['xmin'], gt['ymin']), 
             gt['xmax'] - gt['xmin'], 
             gt['ymax'] - gt['ymin'],
-            fill=False, edgecolor='green', linewidth=2
+            fill=False, edgecolor='green', linewidth=3
         )
         axes[0].add_patch(rect)
-        axes[0].text(gt['xmin'], gt['ymin'] - 5, f"GT{i}", fontsize=8, color='green')
+        axes[0].text(gt['xmin'], gt['ymin'] - 5, f"GT{i}", fontsize=10, color='green')
     axes[0].axis('off')
     
     # Plot 2: Predicted bubbles with order
     axes[1].imshow(image)
     axes[1].set_title("Predicted Bubbles (Ordered)", fontsize=12)
-    colors = plt.cm.rainbow(np.linspace(0, 1, len(pred_bboxes)))
     for i, bbox in enumerate(pred_bboxes):
         rect = plt.Rectangle(
             (bbox[0], bbox[1]), 
             bbox[2] - bbox[0], 
             bbox[3] - bbox[1],
-            fill=False, edgecolor=colors[i], linewidth=2
+            fill=False, edgecolor='red', linewidth=3
         )
         axes[1].add_patch(rect)
-        axes[1].text(bbox[0], bbox[1] - 5, f"[{i}]", fontsize=10, color=colors[i], fontweight='bold')
+        axes[1].text(bbox[0], bbox[1] - 5, f"[{i}]", fontsize=10, color='red', fontweight='bold')
     axes[1].axis('off')
     
     # Plot 3: Matching overlay
@@ -390,7 +389,7 @@ def visualize_matching(
             (gt['xmin'], gt['ymin']), 
             gt['xmax'] - gt['xmin'], 
             gt['ymax'] - gt['ymin'],
-            fill=False, edgecolor='green', linewidth=1, linestyle='--'
+            fill=False, edgecolor='green', linewidth=3, linestyle='--'
         )
         axes[2].add_patch(rect)
     for pred_idx, gt_indices in matches.items():
@@ -401,7 +400,7 @@ def visualize_matching(
                 (bbox[0], bbox[1]), 
                 bbox[2] - bbox[0], 
                 bbox[3] - bbox[1],
-                fill=False, edgecolor=color, linewidth=2
+                fill=False, edgecolor=color, linewidth=3
             )
             axes[2].add_patch(rect)
             label = f"P{pred_idx}→GT{gt_indices}" if gt_indices else f"P{pred_idx}(empty)"
