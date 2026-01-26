@@ -467,16 +467,21 @@ def create_summary_plots(all_results: List[Dict], save_dir: str):
     axes[0, 1].set_title('Ordering Accuracy Distribution')
     axes[0, 1].legend()
     
-    # Plot 3: Bubble counts
+    # Plot 3: Bubble counts (colored by page index)
     gt_counts = [r['coverage']['num_gt_texts'] for r in all_results]
     pred_counts = [r['coverage']['num_pred_bubbles'] for r in all_results]
-    x = range(len(all_results))
-    axes[1, 0].scatter(gt_counts, pred_counts, alpha=0.5)
+    page_indices = list(range(len(all_results)))
+    
+    scatter = axes[1, 0].scatter(gt_counts, pred_counts, c=page_indices, cmap='viridis', alpha=0.7, edgecolors='black', linewidths=0.5)
     axes[1, 0].plot([0, max(gt_counts)], [0, max(gt_counts)], 'r--', label='Perfect match')
     axes[1, 0].set_xlabel('GT Text Count')
     axes[1, 0].set_ylabel('Predicted Bubble Count')
     axes[1, 0].set_title('GT vs Predicted Counts')
     axes[1, 0].legend()
+    
+    # Add colorbar to show page index
+    cbar = plt.colorbar(scatter, ax=axes[1, 0])
+    cbar.set_label('Page Index')
     
     # Plot 4: Per-book metrics
     from collections import defaultdict
