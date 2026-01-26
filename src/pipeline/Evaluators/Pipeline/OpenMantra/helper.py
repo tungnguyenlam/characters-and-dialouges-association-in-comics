@@ -256,7 +256,8 @@ def evaluate_page(
             'valid_gt_texts': valid_gt_texts,
             'matches': {},
             'trans_predictions_gt_source': [],
-            'trans_expected_gt_source': []
+            'trans_expected_gt_source': [],
+            'trans_sources_gt_source': []
         }
     
     # Match bubbles to GT texts
@@ -300,7 +301,7 @@ def evaluate_page(
 
     # Evaluate GT Source Translation
     # We reuse evaluate_translation_page but pass the new predictions and new source
-    trans_preds_gt, trans_expected_gt, _ = evaluate_translation_page(
+    trans_preds_gt, trans_expected_gt, trans_sources_gt = evaluate_translation_page(
         trans_preds_from_gt, gt_source_texts, valid_gt_texts, matches, unmatched_gt
     )
     
@@ -334,6 +335,7 @@ def evaluate_page(
         'trans_expected': trans_expected,
         'trans_predictions_gt_source': trans_preds_gt,
         'trans_expected_gt_source': trans_expected_gt, # Should be identical to trans_expected
+        'trans_sources_gt_source': trans_sources_gt,
         'trans_sources': trans_sources,
         'ordering': ordering,
         'coverage': coverage,
@@ -528,6 +530,7 @@ def compute_final_metrics(all_results: List[Dict], device: str = 'cpu') -> Dict[
     # GT Source Experiment
     all_trans_pred_gt = []
     all_trans_expected_gt = []
+    all_trans_sources_gt = []
     
     ordering_taus = []
     ordering_exact = []
@@ -550,6 +553,7 @@ def compute_final_metrics(all_results: List[Dict], device: str = 'cpu') -> Dict[
         # Accumulate GT Source results
         all_trans_pred_gt.extend(result.get('trans_predictions_gt_source', []))
         all_trans_expected_gt.extend(result.get('trans_expected_gt_source', []))
+        all_trans_sources_gt.extend(result.get('trans_sources_gt_source', []))
         
         if result['ordering']['num_matched_bubbles'] >= 2:
             ordering_taus.append(result['ordering']['kendall_tau'])
@@ -760,16 +764,43 @@ def compute_final_metrics(all_results: List[Dict], device: str = 'cpu') -> Dict[
                 metrics['trans_gt_source_bertscore_recall'] = 0.0
                 
             # COMET for GT Source - using GT Source text as source
-            if COMET_AVAILABLE:
+            if COMET_AVAILABLE and all_trans_sources_gt:
                 try:
-                    # Collect GT source texts (we didn't strictly save them in all_results, but we can't easily reconstruction without saving.
-                    # Wait!! We didn't save 'gt_source_texts' in the result dict in evaluate_page!
-                    # Actually, I missed adding 'gt_source_texts' to the result dict in Step 1.
-                    # So we cannot compute COMET for GT Source right now.
-                    # I will skip COMET for GT Source to avoid error.
+                    print("Computing COMET scores (GT Source)...")
+                    # Reuse loaded model if possible, otherwise reload (expensive but safe)
+                    model_path = download_model("Unbabel/wmt22-comet-da")
+                    comet_model = load_from_checkpoint(model_path)
+                    
+                    comet_data_gt = [
+                        {
+                            "src": src,
+                            "mt": pred,
+                            "ref": ref
+                        }
+                        for src, pred, ref in zip(all_trans_sources_gt, all_trans_pred_gt, all_trans_expected_gt)
+                    ]
+                    
+                    if comet_data_gt:
+                        comet_output_gt = comet_model.predict(
+                            comet_data_gt,
+                            batch_size=8,
+                            gpus=1 if device != 'cpu' else 0
+                        )
+                        metrics['trans_gt_source_comet'] = comet_output_gt.system_score
+                        print(f"  GT Source COMET score: {metrics['trans_gt_source_comet']:.4f}")
+                    else:
+                        metrics['trans_gt_source_comet'] = 0.0
+                        
+                    del comet_model
+                    gc.collect()
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        
+                except Exception as e:
+                    print(f"GT Source COMET computation failed: {e}")
                     metrics['trans_gt_source_comet'] = 0.0
-                except:
-                    metrics['trans_gt_source_comet'] = 0.0
+            else:
+                 metrics['trans_gt_source_comet'] = 0.0
     else:
         metrics['trans_cer'] = 1.0
         metrics['trans_wer'] = 1.0
