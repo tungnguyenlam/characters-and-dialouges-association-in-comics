@@ -351,7 +351,7 @@ def visualize_matching(
     save_path: Optional[str] = None
 ):
     """Visualize GT vs Predicted bboxes with matching."""
-    fig, axes = plt.subplots(1, 3, figsize=(18, 8))
+    fig, axes = plt.subplots(1, 3, figsize=(16, 8))
     
     # Plot 1: GT text bboxes
     axes[0].imshow(image)
@@ -404,7 +404,7 @@ def visualize_matching(
             )
             axes[2].add_patch(rect)
             label = f"P{pred_idx}→GT{gt_indices}" if gt_indices else f"P{pred_idx}(empty)"
-            axes[2].text(bbox[0], bbox[1] - 5, label, fontsize=7, color=color)
+            axes[2].text(bbox[0], bbox[1] - 5, label, fontsize=9, color=color)
     axes[2].axis('off')
     
     plt.tight_layout()
