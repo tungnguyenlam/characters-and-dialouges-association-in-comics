@@ -117,7 +117,8 @@ class MangaPipeline:
         
         # 4. Typesetting
         self._log("Rendering text...")
-        final_image = self.typesetter.render(image, masks, translated_texts)
+        bubbles = [{'mask': m, 'translated_text': t} for m, t in zip(masks, translated_texts)]
+        final_image = self.typesetter.render(image, bubbles)
         self._log("Done")
         
         return final_image, results
@@ -138,7 +139,8 @@ class MangaPipeline:
 
     def typeset(self, image: np.ndarray, masks: List[np.ndarray], texts: List[str]) -> np.ndarray:
         """Run typesetting only."""
-        return self.typesetter.render(image, masks, texts)
+        bubbles = [{'mask': m, 'translated_text': t} for m, t in zip(masks, texts)]
+        return self.typesetter.render(image, bubbles)
 
     def process_step_by_step(
         self, 
