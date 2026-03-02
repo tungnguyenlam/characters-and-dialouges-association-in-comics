@@ -1,4 +1,5 @@
 from transformers import pipeline
+import torch
 from typing import List
 from .Translator import Translator
 
@@ -29,11 +30,12 @@ class ElanMtJaEnTranslator(Translator):
         self.elan_model = elan_model
 
     def load_model(self) -> None:
+        device = -1 if self.device == 'cpu' else torch.device(self.device)
         self.model = pipeline(
-            'translation', 
+            'translation_ja_to_en', 
             model=self.model_name, 
             framework='pt', 
-            device_map=self.device
+            device=device
         )
         self._log("Model loaded successfully")
 

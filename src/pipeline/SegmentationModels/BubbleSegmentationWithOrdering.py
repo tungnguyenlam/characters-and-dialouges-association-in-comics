@@ -95,6 +95,8 @@ class BubbleSegmentationWithOrdering(BaseSegmentationModel):
         bubble_masks = self._resize_masks(bubble_masks, h, w)
         
         # Get ordering
+        sorted_panel_bboxes: Optional[List[List[float]]] = None
+        sorted_panel_masks: Optional[List[np.ndarray]] = None
         if self.panel_detector:
             # Use panel-aware ordering
             panel_bboxes, panel_masks, _ = self.panel_detector.predict(
@@ -103,7 +105,7 @@ class BubbleSegmentationWithOrdering(BaseSegmentationModel):
             panel_masks = self._resize_masks(panel_masks, h, w)
             
             # Sort panels and get ordered bubble indices
-            ordered_indices = self._order_with_panels(
+            ordered_indices, sorted_panel_bboxes, sorted_panel_masks = self._order_with_panels(
                 bubble_bboxes, panel_bboxes, panel_masks, h
             )
         else:
@@ -116,7 +118,7 @@ class BubbleSegmentationWithOrdering(BaseSegmentationModel):
         ordered_confs = [bubble_confs[i] for i in ordered_indices]
 
         if self.plot:
-            self.plot_panels_and_bubbles(image, panel_bboxes, ordered_bboxes, panel_masks)
+            self.plot_panels_and_bubbles(image, sorted_panel_bboxes or [], ordered_bboxes, sorted_panel_masks)
         
         return ordered_bboxes, ordered_masks, ordered_confs
 
@@ -249,7 +251,7 @@ class BubbleSegmentationWithOrdering(BaseSegmentationModel):
         panel_bboxes: List[List[float]],
         panel_masks: List[np.ndarray],
         image_height: int
-    ) -> List[int]:
+    ) -> Tuple[List[int], List[List[float]], List[np.ndarray]]:
         """Order bubbles using panel information."""
         # Merge overlapping panels
         panel_bboxes, panel_masks = self._merge_overlapping_panels(panel_bboxes, panel_masks)
@@ -257,6 +259,7 @@ class BubbleSegmentationWithOrdering(BaseSegmentationModel):
         # Sort panels in manga order
         sorted_panel_indices = self._sort_panels_manga_order(panel_bboxes, image_height)
         sorted_panels = [panel_bboxes[i] for i in sorted_panel_indices]
+        sorted_panel_masks = [panel_masks[i] for i in sorted_panel_indices]
         
         # Map bubbles to panels
         panel_to_bubbles = self._map_bubbles_to_panels(bubble_bboxes, sorted_panels)
@@ -274,7 +277,7 @@ class BubbleSegmentationWithOrdering(BaseSegmentationModel):
             unassigned = self._sort_bubbles_in_panel(bubble_bboxes, panel_to_bubbles[-1])
             ordered.extend(unassigned)
         
-        return ordered
+        return ordered, sorted_panels, sorted_panel_masks
 
     def _merge_overlapping_panels(
         self,
@@ -326,29 +329,44 @@ class BubbleSegmentationWithOrdering(BaseSegmentationModel):
         ]
 
     def _sort_panels_manga_order(self, bboxes: List[List[float]], image_height: int) -> List[int]:
-        """Return indices of panels sorted in manga reading order."""
+        """Return indices of panels sorted in manga reading order.
+        
+        Uses adaptive Y-gap detection instead of a fixed-grid row height,
+        so panels near a grid boundary are not incorrectly split into different rows.
+        """
         if not bboxes:
             return []
         
-        row_height = image_height / self.num_panel_rows
-        
-        # Group by row
-        row_groups: Dict[int, List[Tuple[int, float]]] = {}
+        # Build (index, center_x, center_y, panel_height) tuples
+        items = []
         for i, bbox in enumerate(bboxes):
-            center_x = (bbox[0] + bbox[2]) / 2
-            center_y = (bbox[1] + bbox[3]) / 2
-            row_idx = int(center_y // row_height)
-            
-            if row_idx not in row_groups:
-                row_groups[row_idx] = []
-            row_groups[row_idx].append((i, center_x))
+            cx = (bbox[0] + bbox[2]) / 2
+            cy = (bbox[1] + bbox[3]) / 2
+            ph = bbox[3] - bbox[1]
+            items.append((i, cx, cy, ph))
+        
+        # Sort by center_y to detect natural row breaks
+        items_sorted = sorted(items, key=lambda x: x[2])
+        
+        # Use min panel height * 0.5 as row-break gap threshold
+        min_height = min(it[3] for it in items_sorted)
+        gap_threshold = min_height * 0.5
+        
+        rows = []
+        current_row = [items_sorted[0]]
+        for k in range(1, len(items_sorted)):
+            if items_sorted[k][2] - items_sorted[k - 1][2] > gap_threshold:
+                rows.append(current_row)
+                current_row = [items_sorted[k]]
+            else:
+                current_row.append(items_sorted[k])
+        rows.append(current_row)
         
         # Sort each row right-to-left, concatenate top-to-bottom
         ordered = []
-        for row_idx in sorted(row_groups.keys()):
-            items = row_groups[row_idx]
-            items.sort(key=lambda x: x[1], reverse=self.right_to_left)
-            ordered.extend([idx for idx, _ in items])
+        for row in rows:
+            row.sort(key=lambda x: x[1], reverse=self.right_to_left)
+            ordered.extend([it[0] for it in row])
         
         return ordered
 
@@ -357,23 +375,32 @@ class BubbleSegmentationWithOrdering(BaseSegmentationModel):
         bubble_bboxes: List[List[float]],
         panel_bboxes: List[List[float]]
     ) -> Dict[int, List[int]]:
-        """Map bubble indices to panel indices by center containment."""
+        """Map bubble indices to panel indices by maximum overlap area.
+        
+        Uses overlap-area based assignment instead of center-point containment,
+        so bubbles straddling panel borders are assigned to the panel they
+        overlap with the most rather than whichever contains their center.
+        """
         panel_to_bubbles: Dict[int, List[int]] = {i: [] for i in range(len(panel_bboxes))}
         panel_to_bubbles[-1] = []  # Unassigned
         
-        for i, bbox in enumerate(bubble_bboxes):
-            cx = (bbox[0] + bbox[2]) / 2
-            cy = (bbox[1] + bbox[3]) / 2
+        for i, b in enumerate(bubble_bboxes):
+            best_panel = -1
+            best_area = 0.0
             
-            assigned = False
-            for j, panel in enumerate(panel_bboxes):
-                if panel[0] <= cx <= panel[2] and panel[1] <= cy <= panel[3]:
-                    panel_to_bubbles[j].append(i)
-                    assigned = True
-                    break
+            for j, p in enumerate(panel_bboxes):
+                ix1 = max(b[0], p[0])
+                iy1 = max(b[1], p[1])
+                ix2 = min(b[2], p[2])
+                iy2 = min(b[3], p[3])
+                
+                if ix2 > ix1 and iy2 > iy1:
+                    area = (ix2 - ix1) * (iy2 - iy1)
+                    if area > best_area:
+                        best_area = area
+                        best_panel = j
             
-            if not assigned:
-                panel_to_bubbles[-1].append(i)
+            panel_to_bubbles[best_panel].append(i)
         
         return panel_to_bubbles
 
@@ -382,7 +409,11 @@ class BubbleSegmentationWithOrdering(BaseSegmentationModel):
         all_bboxes: List[List[float]],
         bubble_indices: List[int]
     ) -> List[int]:
-        """Sort bubble indices within a panel using adaptive row detection."""
+        """Sort bubble indices within a panel using adaptive row detection.
+        
+        Uses min bubble height (instead of avg) as the gap threshold basis
+        so that one oversized bubble cannot collapse two real rows into one.
+        """
         if len(bubble_indices) <= 1:
             return bubble_indices
         
@@ -395,12 +426,12 @@ class BubbleSegmentationWithOrdering(BaseSegmentationModel):
             height = bbox[3] - bbox[1]
             centers.append((i, cx, cy, height))
         
-        # Sort by y to find natural row breaks
+        # Sort by center_y to find natural row breaks
         centers_sorted = sorted(centers, key=lambda x: x[2])
         
-        # Detect rows using gap threshold
-        avg_height = np.mean([c[3] for c in centers])
-        gap_threshold = avg_height * 0.5
+        # Use min height * 0.5 — robust against outlier large bubbles
+        min_height = min(c[3] for c in centers_sorted)
+        gap_threshold = min_height * 0.5
         
         rows = []
         current_row = [centers_sorted[0]]
@@ -417,7 +448,7 @@ class BubbleSegmentationWithOrdering(BaseSegmentationModel):
         
         rows.append(current_row)
         
-        # Sort each row by x, concatenate
+        # Sort each row right-to-left, concatenate top-to-bottom
         ordered = []
         for row in rows:
             row.sort(key=lambda x: x[1], reverse=self.right_to_left)
